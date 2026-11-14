@@ -2,7 +2,6 @@ import hashlib
 import os
 import re
 import shutil
-import asyncio
 import json
 import subprocess
 import sys
@@ -53,7 +52,7 @@ class PrivateStorage:
             raise StorageError('Storage aliases are not allowed')
         return path
 
-    async def store_image(self, scan_id: str, file: UploadFile):
+    def store_image(self, scan_id: str, file: UploadFile):
         name = safe_name(file.filename or '')
         ext = Path(name).suffix.lower().lstrip('.')
         formats = {'jpg': 'JPEG', 'jpeg': 'JPEG', 'png': 'PNG', 'webp': 'WEBP'}
@@ -66,7 +65,7 @@ class PrivateStorage:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open('xb') as out:
                 created = True
-                while chunk := await file.read(1024 * 1024):
+                while chunk := file.file.read(1024 * 1024):
                     size += len(chunk)
                     if size > self.limit: raise AssetTooLarge()
                     digest.update(chunk); out.write(chunk)
@@ -77,13 +76,13 @@ class PrivateStorage:
             except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
                 raise InvalidAsset('Invalid image content') from exc
             return {'asset_id': asset_id, 'filename': name, 'file_format': ext, 'file_size': size, 'storage_key': key, 'sha256': digest.hexdigest(), 'metadata_json': metadata}
-        except Exception:
+        except BaseException:
             if created: path.unlink(missing_ok=True)
             raise
         finally:
-            await file.close()
+            file.file.close()
 
-    async def store_mesh(self, scan_id: str, file: UploadFile, unit: str):
+    def store_mesh(self, scan_id: str, file: UploadFile, unit: str):
         name=safe_name(file.filename or '')
         ext=Path(name).suffix.lower().lstrip('.')
         if ext not in ('stl','obj','ply'): raise InvalidAsset('Only STL, OBJ and PLY are supported')
@@ -93,21 +92,23 @@ class PrivateStorage:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open('xb') as out:
                 created=True
-                while chunk:=await file.read(1024*1024):
+                while chunk:=file.file.read(1024*1024):
                     size+=len(chunk)
                     if size>self.limit: raise AssetTooLarge()
                     digest.update(chunk); out.write(chunk)
             try:
-                result=await asyncio.to_thread(subprocess.run, [sys.executable,'-m','app.mesh_worker',str(path),ext,unit], cwd=str(ROOT), capture_output=True, text=True, timeout=15, check=False)
+                result=subprocess.run([sys.executable,'-m','app.mesh_worker',str(path),ext,unit], cwd=str(ROOT), capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
             except subprocess.TimeoutExpired as exc: raise MeshTimeout() from exc
             try: parsed=json.loads(result.stdout)
             except json.JSONDecodeError as exc: raise InvalidAsset('Mesh parser failed') from exc
+            if not isinstance(parsed, dict): raise InvalidAsset('Mesh parser returned an invalid response')
             if result.returncode or not parsed.get('ok'): raise InvalidAsset(parsed.get('error','Invalid mesh'))
+            if not isinstance(parsed.get('metadata'), dict): raise InvalidAsset('Mesh parser returned invalid metadata')
             return {'asset_id':asset_id,'filename':name,'file_format':ext,'file_size':size,'storage_key':key,'sha256':digest.hexdigest(),'metadata_json':parsed['metadata']}
         except BaseException:
             if created: path.unlink(missing_ok=True)
             raise
-        finally: await file.close()
+        finally: file.file.close()
 
     def stage_scan(self, scan_id: str):
         source = self.scan_dir(scan_id)

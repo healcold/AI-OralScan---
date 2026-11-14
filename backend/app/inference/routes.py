@@ -1,11 +1,12 @@
 from typing import Annotated, Literal
 from uuid import UUID
+import json
 import time
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..database import get_db
+from ..database import get_db, lock_scan_write
 from ..models import AnalysisJob, Finding, ModelRegistry, ScanAsset, ScanSession
 from ..storage import PrivateStorage
 from .inference_engine import RuntimeRegistry, get_runtime
@@ -53,9 +54,20 @@ class AnalyzeRequest(BaseModel):
     asset_ids: list[UUID]=Field(min_length=1,max_length=1)
     pipeline: Literal['image_2d']='image_2d'
 
+class InferenceFinding(BaseModel):
+    category: str=Field(min_length=1,max_length=100)
+    confidence: float=Field(ge=0,le=1,allow_inf_nan=False)
+    location: dict
+    evidence: dict
+
 def respond_error(code,message,status):
     from ..main import error
     return error(code,message,status)
+
+def busy_error(code,message):
+    response=respond_error(code,message,503)
+    response.headers['Retry-After']='1'
+    return response
 
 def get_model_root():
     from ..config import get_settings
@@ -94,13 +106,29 @@ def model_status(runtime:Runtime):
 def activate_model(payload:LoadRequest,db:Db,runtime:Runtime,root=Depends(get_model_root)):
     record=db.get(ModelRegistry,str(payload.model_id))
     if not record:return respond_error('MODEL_NOT_FOUND','Registered model not found',404)
-    try: session=load_model(root,record.model_key,record.sha256,record.config)
-    except ModelLoadError as exc: return respond_error('MODEL_LOAD_FAILED',str(exc),422)
-    runtime.activate(record,session)
-    return model_status(runtime)
+    if not runtime.load_lock.acquire(blocking=False):
+        return busy_error('MODEL_LOAD_BUSY','Another model is currently loading')
+    try:
+        # Model construction can be slow; it must not occupy a database connection.
+        db.expunge(record);db.rollback()
+        try: session=load_model(root,record.model_key,record.sha256,record.config)
+        except ModelLoadError as exc: return respond_error('MODEL_LOAD_FAILED',str(exc),422)
+        runtime.activate(record,session)
+        return model_status(runtime)
+    finally:
+        runtime.load_lock.release()
 
 @router.post('/scans/{scan_id}/analyze',status_code=201)
 def analyze(scan_id:UUID,payload:AnalyzeRequest,db:Db,runtime:Runtime,storage:PrivateStorage=Depends(get_private_storage)):
+    if not runtime.inference_slots.acquire(blocking=False):
+        return busy_error('INFERENCE_BUSY','Image analysis capacity is busy; retry shortly')
+    try:
+        return run_analysis(scan_id,payload,db,runtime,storage)
+    finally:
+        runtime.inference_slots.release()
+
+def run_analysis(scan_id,payload,db,runtime,storage):
+    lock_scan_write(db)
     if not db.get(ScanSession,str(scan_id)): return respond_error('SCAN_NOT_FOUND','Scan not found',404)
     asset=db.get(ScanAsset,str(payload.asset_ids[0]))
     if not asset or asset.scan_id!=str(scan_id): return respond_error('ASSET_NOT_FOUND','Image asset not found in this scan',404)
@@ -109,17 +137,34 @@ def analyze(scan_id:UUID,payload:AnalyzeRequest,db:Db,runtime:Runtime,storage:Pr
     if adapter is None:return respond_error('MODEL_NOT_CONFIGURED','No oral research model is loaded',409)
     is_demo=getattr(adapter,'is_demo',None)
     if not isinstance(is_demo,bool):return respond_error('INVALID_ADAPTER','Adapter must declare whether its output is DEMO',422)
-    job=AnalysisJob(scan_id=str(scan_id),asset_id=asset.asset_id,pipeline='image_2d',status='running',parameters={'model_id':model_id,'model_version':model_version},result_summary={});db.add(job);db.flush()
+    asset_id=asset.asset_id;storage_key=asset.storage_key
+    job=AnalysisJob(scan_id=str(scan_id),asset_id=asset_id,pipeline='image_2d',status='running',parameters={'model_id':model_id,'model_version':model_version},result_summary={})
+    db.add(job);db.flush();job_id=job.job_id
+    # Release both the SQLite writer lock and the pool connection during inference.
+    db.commit()
     started=time.perf_counter()
-    try: results=adapter.infer(storage.path(asset.storage_key))
+    failure=False
+    try:
+        raw_results=adapter.infer(storage.path(storage_key))
+        if not isinstance(raw_results,list) or len(raw_results)>100:
+            raise ValueError('Unexpected inference result list')
+        results=[InferenceFinding.model_validate(item).model_dump() for item in raw_results]
+        json.dumps(results,allow_nan=False)
     except Exception:
-        job.status='failed';job.result_summary={'error':'Inference failed or model output did not match its contract','processing_time_ms':round((time.perf_counter()-started)*1000,3),'model_name':model_name,'model_version':model_version,'is_demo':is_demo};db.commit()
+        failure=True;results=[]
+    elapsed=round((time.perf_counter()-started)*1000,3)
+    lock_scan_write(db)
+    db.expunge_all()
+    job=db.get(AnalysisJob,job_id)
+    if job is None:return respond_error('SCAN_NOT_FOUND','Scan was deleted while analysis was running',404)
+    if failure:
+        job.status='failed';job.result_summary={'error':'Inference failed or model output did not match its contract','processing_time_ms':elapsed,'model_name':model_name,'model_version':model_version,'is_demo':is_demo};db.commit()
         return respond_error('INFERENCE_FAILED','Inference failed or model output did not match its contract',422)
     for item in results:
         evidence={**item['evidence'],'is_demo':is_demo}
-        db.add(Finding(scan_id=str(scan_id),asset_id=asset.asset_id,job_id=job.job_id,modality='image_2d',category=item['category'],confidence=item['confidence'],location=item['location'],evidence=evidence,model_version=model_version))
-    job.status='succeeded';job.result_summary={'count':len(results),'model_name':model_name,'model_version':model_version,'is_demo':is_demo,'processing_time_ms':round((time.perf_counter()-started)*1000,3)};db.commit()
-    return {'job_id':job.job_id,'asset_id':asset.asset_id,'status':job.status,'finding_count':len(results),'is_demo':is_demo}
+        db.add(Finding(scan_id=str(scan_id),asset_id=asset_id,job_id=job_id,modality='image_2d',category=item['category'],confidence=item['confidence'],location=item['location'],evidence=evidence,model_version=model_version))
+    job.status='succeeded';job.result_summary={'count':len(results),'model_name':model_name,'model_version':model_version,'is_demo':is_demo,'processing_time_ms':elapsed};db.commit()
+    return {'job_id':job_id,'asset_id':asset_id,'status':'succeeded','finding_count':len(results),'is_demo':is_demo}
 
 @router.get('/scans/{scan_id}/analysis')
 def get_analysis(scan_id:UUID,db:Db):

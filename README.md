@@ -20,7 +20,7 @@
 
 ## 在本地体验
 
-需要 Python 3、Node.js 22 及 pnpm。先在一个 PowerShell 窗口启动后端：
+需要 Python 3.11 或更新版本（推荐 3.12）、Node.js 22 及 pnpm。先在一个 PowerShell 窗口启动后端：
 
 ```powershell
 cd backend
@@ -38,6 +38,8 @@ pnpm dev
 ```
 
 打开前端终端显示的本地网址即可。摄像头采集需要浏览器授权；保存检查、上传文件等功能需要后端保持运行。
+
+后端的并发限制、数据库配置及验证命令见 [后端稳定性说明](docs/BACKEND_STABILITY.md)。
 
 ## 启用免费 AI 助理
 

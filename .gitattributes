@@ -1,0 +1,2 @@
+# Preserve fixture bytes and hashes on Windows checkouts.
+backend/tests/fixtures/meshes/* -text

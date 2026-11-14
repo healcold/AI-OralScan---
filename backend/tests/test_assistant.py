@@ -1,10 +1,14 @@
+import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from threading import Event
 
 import httpx
 import pytest
 from pydantic import SecretStr
 
-from app.assistant import DEEPSEEK_ENDPOINT
+from app.assistant import DEEPSEEK_ENDPOINT, MAX_PROVIDER_RESPONSE_BYTES
 from app.config import Settings, get_settings
 from app.main import app
 from app.models import AnalysisJob, Finding, ScanAsset, ScanSession
@@ -21,8 +25,16 @@ def assistant(setup, monkeypatch):
 
     async def handle(request):
         calls.append(request)
+        if state.get('on_request'):
+            state['on_request']()
+        if state.get('started'):
+            state['started'].set()
+            while not state['release'].is_set():
+                await asyncio.sleep(0.005)
         if state.get('timeout'):
             raise httpx.ReadTimeout('timeout', request=request)
+        if state.get('stream') is not None:
+            return httpx.Response(state['status'], stream=state['stream'])
         return httpx.Response(state['status'], json=state['body'])
 
     monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: original_client(transport=httpx.MockTransport(handle), **kwargs))
@@ -133,8 +145,9 @@ def test_summary_uses_only_current_non_demo_results_and_omits_identity(assistant
                           filename='PRIVATE FILENAME.png', file_format='png', file_size=1,
                           storage_key='PRIVATE STORAGE KEY', sha256='a' * 64, metadata_json={'patient': 'PRIVATE METADATA'})
         db.add(asset); db.flush()
-        for category, demo in [('OLD FINDING', False), ('DEMO FINDING', True), ('CURRENT FINDING', False)]:
-            job = AnalysisJob(scan_id=scan.scan_id, asset_id=asset.asset_id, pipeline='image_2d', status='succeeded', result_summary={})
+        for index, (category, demo) in enumerate([('OLD FINDING', False), ('DEMO FINDING', True), ('CURRENT FINDING', False)]):
+            job = AnalysisJob(scan_id=scan.scan_id, asset_id=asset.asset_id, pipeline='image_2d', status='succeeded', result_summary={},
+                              created_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=index))
             db.add(job); db.flush()
             db.add(Finding(scan_id=scan.scan_id, asset_id=asset.asset_id, job_id=job.job_id,
                            modality='image_2d', category=category, confidence=0.7,
@@ -296,3 +309,99 @@ def test_report_term_question_is_not_mistaken_for_a_workflow_request(assistant, 
     assert response.status_code == 200
     assert response.json()['provider'] == 'DeepSeek'
     assert len(calls) == 1
+
+
+class ProviderStream(httpx.AsyncByteStream):
+    def __init__(self, chunks, delay=0):
+        self.chunks = chunks
+        self.delay = delay
+        self.closed = False
+        self.chunks_read = 0
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            await asyncio.sleep(self.delay)
+            self.chunks_read += 1
+            yield chunk
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.mark.parametrize('provider', ['ollama', 'deepseek'])
+def test_slow_upstream_has_a_total_deadline_and_releases_capacity(assistant, provider):
+    client, settings, _, state, _ = assistant
+    settings.assistant_provider = provider
+    settings.assistant_max_concurrent_requests = 1
+    setattr(settings, f'{provider}_timeout_seconds', 0.05)
+    # Each individual read is quick enough for HTTPX's read timeout; together
+    # they exceed the overall deadline. No complete reply should be returned.
+    stream = ProviderStream([b' '] * 100, delay=0.01)
+    state['stream'] = stream
+    response = send(client, provider=provider)
+    assert response.status_code == 504
+    assert response.json()['error']['code'] == 'ASSISTANT_TIMEOUT'
+    assert stream.closed and stream.chunks_read < 100
+    state.pop('stream')
+    state['timeout'] = True
+    # A leaked slot would return 429 instead of contacting the provider again.
+    assert send(client, provider=provider).status_code == 504
+
+
+@pytest.mark.parametrize('provider', ['ollama', 'deepseek'])
+def test_oversized_upstream_is_closed_before_buffering_the_rest(assistant, provider):
+    client, settings, _, state, _ = assistant
+    settings.assistant_provider = provider
+    stream = ProviderStream([b' ' * (MAX_PROVIDER_RESPONSE_BYTES // 2)] * 5)
+    state['stream'] = stream
+    response = send(client, provider=provider)
+    assert response.status_code == 502
+    assert response.json()['error']['code'] == 'ASSISTANT_UNAVAILABLE'
+    assert stream.closed and stream.chunks_read == 3
+
+
+@pytest.mark.parametrize('body', [None, [], 'invalid', {'choices': []}, {'choices': [None]}])
+def test_malformed_upstream_json_is_a_retryable_gateway_error(assistant, body):
+    client, _, _, state, _ = assistant
+    state['body'] = body
+    response = send(client)
+    assert response.status_code == 502
+    assert response.json()['error']['code'] == 'ASSISTANT_UNAVAILABLE'
+
+
+def test_concurrent_generation_is_bounded_and_health_and_guidance_remain_available(assistant):
+    client, settings, calls, state, _ = assistant
+    settings.assistant_max_concurrent_requests = 1
+    started, release = Event(), Event()
+    state.update(started=started, release=release)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first = executor.submit(send, client)
+        try:
+            assert started.wait(timeout=5)
+            overloaded = send(client)
+            assert overloaded.status_code == 429
+            assert overloaded.json()['error']['code'] == 'ASSISTANT_BUSY'
+            assert len(calls) == 1
+            assert client.get('/api/health').status_code == 200
+            guidance = send(client, messages=[{'role': 'user', 'content': '如何上传图片？'}])
+            assert guidance.status_code == 200
+            assert guidance.json()['provider'] == '平台引导'
+        finally:
+            release.set()
+        assert first.result(timeout=5).status_code == 200
+    assert send(client).status_code == 200
+
+
+def test_scan_summary_releases_database_connection_before_waiting_for_provider(assistant):
+    client, _, _, state, factory = assistant
+    with factory() as db:
+        scan = ScanSession(metadata_json={}, source_types=[])
+        db.add(scan)
+        db.commit()
+        scan_id = scan.scan_id
+    checked_out = []
+    state['on_request'] = lambda: checked_out.append(factory.kw['bind'].pool.checkedout())
+    response = send(client, scan_id=scan_id)
+    assert response.status_code == 200
+    assert response.json()['context_included'] is True
+    assert checked_out == [0]

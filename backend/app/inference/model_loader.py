@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 import onnxruntime as ort
 
@@ -7,11 +8,21 @@ class ModelLoadError(ValueError): pass
 def load_model(root: Path, key: str, expected_hash: str, config: dict):
     root=root.resolve();path=(root/key).resolve()
     if not path.is_relative_to(root) or path.suffix.lower()!='.onnx': raise ModelLoadError('Model must be an ONNX file inside the private models directory')
-    if not path.is_file(): raise ModelLoadError('Model file not found')
-    if path.stat().st_size>512*1024*1024: raise ModelLoadError('Model file exceeds 512 MiB')
-    model_bytes=path.read_bytes()
+    try:
+        # Keep the read bounded, including when a file grows while being loaded.
+        with path.open('rb') as model_file:
+            size=os.fstat(model_file.fileno()).st_size
+            if size>512*1024*1024: raise ModelLoadError('Model file exceeds 512 MiB')
+            model_bytes=model_file.read(size+1)
+            if len(model_bytes)!=size: raise ModelLoadError('Model file changed while loading')
+    except OSError as exc: raise ModelLoadError('Model file is unavailable') from exc
+    if len(model_bytes)>512*1024*1024: raise ModelLoadError('Model file exceeds 512 MiB')
     if hashlib.sha256(model_bytes).hexdigest()!=expected_hash.lower(): raise ModelLoadError('Model SHA-256 does not match the registered file')
-    try: session=ort.InferenceSession(model_bytes,providers=['CPUExecutionProvider'])
+    options=ort.SessionOptions()
+    options.intra_op_num_threads=max(1,min(4,os.cpu_count() or 1))
+    options.inter_op_num_threads=1
+    options.add_session_config_entry('session.intra_op.allow_spinning','0')
+    try: session=ort.InferenceSession(model_bytes,sess_options=options,providers=['CPUExecutionProvider'])
     except Exception as exc: raise ModelLoadError('Unable to load ONNX model') from exc
     inputs=session.get_inputs();outputs=session.get_outputs();expected_type={'float32':'tensor(float)','uint8':'tensor(uint8)'}[config['dtype']]
     if len(inputs)!=1 or inputs[0].type!=expected_type: raise ModelLoadError('Model input count or type does not match configuration')

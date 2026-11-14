@@ -102,3 +102,52 @@ def test_changed_hash_is_rejected_and_failure_is_persisted(geometry_setup):
     assert client.post(url).status_code==422
     result=client.get(url).json();assert result['status']=='failed' and 'hash' in result['warnings'][0]
     assert storage.path(asset['storage_key']).read_bytes()==original
+
+
+@pytest.mark.parametrize('delete_scan',[False,True])
+def test_geometry_releases_connection_and_handles_concurrent_delete(geometry_setup,monkeypatch,delete_scan):
+    import json
+    from sqlalchemy import delete, select
+    from app.models import AnalysisJob, ScanSession
+    client,_,factory=geometry_setup
+    scan=create(client);asset,original=upload_mesh(client,scan,'tetra.obj')
+
+    def worker(*args,**kwargs):
+        assert factory.kw['bind'].pool.checkedout()==0
+        with factory() as other:
+            other.connection().exec_driver_sql('PRAGMA busy_timeout=50')
+            assert other.scalar(select(AnalysisJob.status))=='running'
+            if delete_scan:
+                other.execute(delete(ScanSession).where(ScanSession.scan_id==scan))
+            else:
+                other.add(ScanSession(metadata_json={},source_types=[]))
+            other.commit()
+        result=analyze_mesh(original,'obj','unknown',asset['asset_id'],asset['sha256'])
+        return subprocess.CompletedProcess(args[0],0,json.dumps(result.model_dump()),'')
+
+    monkeypatch.setattr(subprocess,'run',worker)
+    response=client.post(f'/api/scans/{scan}/assets/{asset["asset_id"]}/geometry-analysis')
+    assert response.status_code==(404 if delete_scan else 200),response.text
+    if delete_scan:assert response.json()['error']['code']=='SCAN_NOT_FOUND'
+
+
+def test_geometry_backpressure_and_slot_release_after_timeout(geometry_setup,monkeypatch):
+    from app.geometry.routes import geometry_slots
+    client,_,_=geometry_setup
+    scan=create(client);asset,_=upload_mesh(client,scan,'tetra.obj')
+    url=f'/api/scans/{scan}/assets/{asset["asset_id"]}/geometry-analysis'
+    geometry_slots.acquire();geometry_slots.acquire()
+    try:
+        response=client.post(url)
+        assert response.status_code==503 and response.headers['retry-after']=='1'
+        assert response.json()['error']['code']=='GEOMETRY_BUSY'
+        assert client.get(url).status_code==404
+    finally:
+        geometry_slots.release();geometry_slots.release()
+    def timeout(*args,**kwargs):raise subprocess.TimeoutExpired('geometry',20)
+    monkeypatch.setattr(subprocess,'run',timeout)
+    assert client.post(url).status_code==422
+    assert geometry_slots.acquire(blocking=False)
+    assert geometry_slots.acquire(blocking=False)
+    assert not geometry_slots.acquire(blocking=False)
+    geometry_slots.release();geometry_slots.release()
