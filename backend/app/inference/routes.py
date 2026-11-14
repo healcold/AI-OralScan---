@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import AnalysisJob, Finding, ModelRegistry, ScanAsset, ScanSession
+from ..auth import CurrentAccount, require_admin, require_owned_scan, same_origin_write
+from ..models import AnalysisJob, Finding, ModelRegistry, ScanAsset
 from ..storage import PrivateStorage
 from .inference_engine import RuntimeRegistry, get_runtime
 from .model_loader import ModelLoadError, load_model
@@ -71,7 +72,7 @@ Runtime=Annotated[RuntimeRegistry,Depends(get_runtime)]
 def model_out(record):
     return {'model_id':record.model_id,'name':record.name,'version':record.version,'task':record.task,'sha256':record.sha256,'model_key':record.model_key,'config':record.config,'created_at':record.created_at}
 
-@router.post('/models',status_code=201)
+@router.post('/models',status_code=201, dependencies=[Depends(require_admin), Depends(same_origin_write)])
 def register_model(spec:ModelSpec,db:Db):
     from pathlib import PurePosixPath, PureWindowsPath
     if PurePosixPath(spec.model_key).is_absolute() or PureWindowsPath(spec.model_key).is_absolute() or '..' in PurePosixPath(spec.model_key.replace('\\','/')).parts or PureWindowsPath(spec.model_key).drive:
@@ -81,27 +82,29 @@ def register_model(spec:ModelSpec,db:Db):
     db.add(record);db.commit();db.refresh(record)
     return model_out(record)
 
-@router.get('/models')
+@router.get('/models', dependencies=[Depends(require_admin)])
 def list_models(db:Db): return {'items':[model_out(m) for m in db.scalars(select(ModelRegistry).order_by(ModelRegistry.created_at.desc())).all()]}
 
 @router.get('/models/status')
-def model_status(runtime:Runtime):
+def model_status(runtime:Runtime, _account: CurrentAccount):
+    return runtime_status(runtime)
+
+def runtime_status(runtime:Runtime):
     adapter,model_id,name,version=runtime.snapshot()
     if adapter is None:return {'status':'MODEL_NOT_CONFIGURED','model':None}
     return {'status':'READY','model':{'model_id':model_id,'name':name,'version':version,'device':'CPUExecutionProvider'}}
 
-@router.post('/models/load')
+@router.post('/models/load', dependencies=[Depends(require_admin), Depends(same_origin_write)])
 def activate_model(payload:LoadRequest,db:Db,runtime:Runtime,root=Depends(get_model_root)):
     record=db.get(ModelRegistry,str(payload.model_id))
     if not record:return respond_error('MODEL_NOT_FOUND','Registered model not found',404)
     try: session=load_model(root,record.model_key,record.sha256,record.config)
     except ModelLoadError as exc: return respond_error('MODEL_LOAD_FAILED',str(exc),422)
     runtime.activate(record,session)
-    return model_status(runtime)
+    return runtime_status(runtime)
 
-@router.post('/scans/{scan_id}/analyze',status_code=201)
+@router.post('/scans/{scan_id}/analyze',status_code=201, dependencies=[Depends(require_owned_scan), Depends(same_origin_write)])
 def analyze(scan_id:UUID,payload:AnalyzeRequest,db:Db,runtime:Runtime,storage:PrivateStorage=Depends(get_private_storage)):
-    if not db.get(ScanSession,str(scan_id)): return respond_error('SCAN_NOT_FOUND','Scan not found',404)
     asset=db.get(ScanAsset,str(payload.asset_ids[0]))
     if not asset or asset.scan_id!=str(scan_id): return respond_error('ASSET_NOT_FOUND','Image asset not found in this scan',404)
     if asset.modality!='image_2d': return respond_error('INVALID_MODALITY','Only 2D image assets are supported',422)
@@ -121,9 +124,8 @@ def analyze(scan_id:UUID,payload:AnalyzeRequest,db:Db,runtime:Runtime,storage:Pr
     job.status='succeeded';job.result_summary={'count':len(results),'model_name':model_name,'model_version':model_version,'is_demo':is_demo,'processing_time_ms':round((time.perf_counter()-started)*1000,3)};db.commit()
     return {'job_id':job.job_id,'asset_id':asset.asset_id,'status':job.status,'finding_count':len(results),'is_demo':is_demo}
 
-@router.get('/scans/{scan_id}/analysis')
+@router.get('/scans/{scan_id}/analysis', dependencies=[Depends(require_owned_scan)])
 def get_analysis(scan_id:UUID,db:Db):
-    if not db.get(ScanSession,str(scan_id)):return respond_error('SCAN_NOT_FOUND','Scan not found',404)
     jobs=db.scalars(select(AnalysisJob).where(AnalysisJob.scan_id==str(scan_id)).order_by(AnalysisJob.created_at.desc(), AnalysisJob.job_id.desc())).all()
     findings=db.scalars(select(Finding).where(Finding.scan_id==str(scan_id)).order_by(Finding.created_at.desc())).all()
     return {'jobs':[{'job_id':j.job_id,'asset_id':j.asset_id,'status':j.status,'parameters':j.parameters,'result_summary':j.result_summary,'created_at':j.created_at} for j in jobs], 'findings':[{'finding_id':f.finding_id,'asset_id':f.asset_id,'job_id':f.job_id,'category':f.category,'confidence':f.confidence,'location':f.location,'evidence':f.evidence,'model_version':f.model_version} for f in findings], 'limitations':['Research and assisted screening only; model scores are not disease probabilities.']}

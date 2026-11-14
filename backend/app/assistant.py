@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy.orm import Session
 
+from .auth import CurrentAccount, own_scan, same_origin_write
 from .config import Settings, get_settings
 from .database import get_db
 from .models import ScanAsset, ScanSession
@@ -154,7 +155,7 @@ def workflow_guidance(text: str) -> str | None:
 
 
 @router.get('/status')
-async def status(settings: Settings = Depends(get_settings)):
+async def status(_account: CurrentAccount, settings: Settings = Depends(get_settings)):
     if settings.assistant_provider == 'ollama':
         ready = False
         message = '本地助理暂时未启动，请由项目维护者启动本地模型服务。'
@@ -206,14 +207,17 @@ def scan_context(db: Session, scan: ScanSession, asset_id: str | None = None) ->
     }
 
 
-@router.post('/chat')
-async def chat(payload: ChatRequest, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+@router.post('/chat', dependencies=[Depends(same_origin_write)])
+async def chat(payload: ChatRequest, account: CurrentAccount, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     from .main import error
     local = settings.assistant_provider == 'ollama'
     if payload.provider != settings.assistant_provider:
         return error('ASSISTANT_PROVIDER_CHANGED', '助理的处理方式已更新，请刷新页面，重新确认对话处理说明。', 409)
     if not payload.consent:
         return error('ASSISTANT_CONSENT_REQUIRED', '请先阅读并勾选对话处理说明。', 403)
+    scan = own_scan(db, account, payload.scan_id) if payload.scan_id is not None else None
+    if payload.scan_id is not None and scan is None:
+        return error('SCAN_NOT_FOUND', '这份检查暂时找不到了，请重新选择。', 404)
     urgent = urgent_guidance(payload.messages[-1].content)
     if urgent:
         return {'reply': urgent, 'provider': '就医引导', 'model': '固定紧急提示', 'context_included': False, 'urgent': True}
@@ -225,10 +229,7 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db), settings: Se
 
     messages = [{'role': 'system', 'content': SYSTEM_PROMPT}]
     context_included = False
-    if payload.scan_id is not None:
-        scan = db.get(ScanSession, str(payload.scan_id))
-        if scan is None:
-            return error('SCAN_NOT_FOUND', '这份检查暂时找不到了，请重新选择。', 404)
+    if scan is not None:
         if payload.asset_id is not None:
             asset = db.get(ScanAsset, str(payload.asset_id))
             if asset is None or asset.scan_id != scan.scan_id or asset.modality != 'image_2d':

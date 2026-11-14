@@ -5,6 +5,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from .auth import CurrentAccount, own_scan
 from .database import get_db
 from .models import ScanSession, ScanAsset, AnalysisJob, Finding
 from .geometry.findings import geometry_findings
@@ -71,8 +72,8 @@ def summarize_scan(db: Session, scan: ScanSession):
     }
 
 @router.get('/scans/{scan_id}/unified-analysis')
-def unified_analysis(scan_id: UUID, db: Session=Depends(get_db)):
-    scan=db.get(ScanSession,str(scan_id))
+def unified_analysis(scan_id: UUID, account: CurrentAccount, db: Session=Depends(get_db)):
+    scan=own_scan(db,account,scan_id)
     if not scan:
         from .main import error
         return error('SCAN_NOT_FOUND','Scan not found',404)

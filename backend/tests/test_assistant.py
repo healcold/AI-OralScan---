@@ -7,7 +7,7 @@ from pydantic import SecretStr
 from app.assistant import DEEPSEEK_ENDPOINT
 from app.config import Settings, get_settings
 from app.main import app
-from app.models import AnalysisJob, Finding, ScanAsset, ScanSession
+from app.models import Account, AnalysisJob, Finding, ScanAsset, ScanSession
 
 
 @pytest.fixture
@@ -127,7 +127,8 @@ def test_truncated_medical_answer_is_not_displayed_as_complete(assistant):
 def test_summary_uses_only_current_non_demo_results_and_omits_identity(assistant):
     client, _, calls, _, factory = assistant
     with factory() as db:
-        scan = ScanSession(metadata_json={'patient_name': 'PRIVATE PATIENT', 'phone': 'PRIVATE PHONE'}, source_types=[])
+        owner = db.query(Account).filter_by(username='fixture-admin').one().account_id
+        scan = ScanSession(owner_id=owner, metadata_json={'patient_name': 'PRIVATE PATIENT', 'phone': 'PRIVATE PHONE'}, source_types=[])
         db.add(scan); db.flush()
         asset = ScanAsset(scan_id=scan.scan_id, modality='image_2d', source_type='upload',
                           filename='PRIVATE FILENAME.png', file_format='png', file_size=1,
@@ -300,8 +301,9 @@ def test_report_term_question_is_not_mistaken_for_a_workflow_request(assistant, 
 
 def result_images(factory, status='succeeded', demo=False, empty=False):
     with factory() as db:
-        scan = ScanSession(source_types=[])
-        other_scan = ScanSession(source_types=[])
+        owner = db.query(Account).filter_by(username='fixture-admin').one().account_id
+        scan = ScanSession(owner_id=owner, source_types=[])
+        other_scan = ScanSession(owner_id=owner, source_types=[])
         db.add_all([scan, other_scan]); db.flush()
         ids = []
         for index in range(3):

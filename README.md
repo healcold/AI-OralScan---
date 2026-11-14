@@ -40,6 +40,24 @@ pnpm dev
 
 打开前端终端显示的本地网址即可。摄像头采集需要浏览器授权；保存检查、上传文件等功能需要后端保持运行。
 
+## 创建登录账号
+
+患者可在 `/register` 使用中国大陆手机号注册，自行设置至少 6 个字符的密码。手机号用作登录账号，注册不发送验证码。创建成功后，返回 `/login` 输入手机号和密码登录。
+
+维护者也可以从后端目录手动创建账号（包括管理员账号）：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.accounts patient-a
+.\.venv\Scripts\python.exe -m app.accounts patient-b
+.\.venv\Scripts\python.exe -m app.accounts operator --admin
+```
+
+按提示设置各自的密码。打开前端并登录后，在「我的检查」查看当前账号的记录。管理员可管理模型，其账号也只能查看自己的检查。已有数据库会增加归属字段，之前的记录保留为未分配，任何账号都不会自动获得访问权；升级前请备份数据库和私有文件。
+
+部署时通过同一个 HTTPS 域名提供前端和 `/api`，代理保留外部 `Host`，并设置 `ORALSCAN_SECURE_SESSION_COOKIE=true`。口腔图片和报告的存储目录应保持私有，由应用校验账号后提供下载。
+
+本地双账号验收：在前端目录运行 `pnpm build`，再运行 `pnpm exec playwright test e2e/patient-access.spec.ts`。测试使用独立临时数据库和模拟图片，验证另一个账号无法访问直接链接。
+
 ## 启用免费 AI 助理
 
 安装 [Ollama](https://ollama.com/download/windows) 后，下载本地文字模型：

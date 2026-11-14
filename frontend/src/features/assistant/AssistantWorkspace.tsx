@@ -44,7 +44,7 @@ export default function AssistantWorkspace() {
   },[statusAttempt])
   useEffect(() => {
     let live = true
-    api.scans().then(result => {if(live)setScans(result.items)})
+    api.scans().then(result => {if(live){setScans(result.items);setScanId(previous=>result.items.some(scan=>scan.scan_id===previous)?previous:'')}})
       .catch(() => {if(live)setScansError('暂时无法读取检查列表，仍可进行普通问答。')})
     return () => {live=false;controllerRef.current?.abort()}
   },[])
@@ -121,7 +121,7 @@ export default function AssistantWorkspace() {
       <aside className="assistant-aside">
         <section className="assistant-care-card"><HeartHandshake size={23}/><h2>先照顾你的感受</h2><p>担心和紧张都很正常。你不需要一次描述完整，也可以直接告诉小安：“我有点害怕。”</p><div><Check size={14}/> 不催促，慢慢说明白</div><div><Check size={14}/> 用容易理解的话解释</div><div><Check size={14}/> 一起整理接下来的安排</div></section>
         <details className="assistant-context panel" open={!!initialScan}><summary>结合检查解释<span>可选</span></summary><h2>一起看看检查</h2><p>如果愿意，可以让小安结合一份已保存检查的文字结果来解释。</p><label htmlFor="assistant-scan">选择检查</label><select id="assistant-scan" value={scanId} disabled={pending} onChange={event=>{setScanId(event.target.value);setIncludeScan(false);setConsent(false);resetConversation()}}><option value="">暂不选择</option>{scans.map(scan=><option key={scan.scan_id} value={scan.scan_id}>{new Date(scan.created_at).toLocaleString('zh-CN')} · {scan.scan_id.slice(0,8)}</option>)}</select>
-          <label className="assistant-context-check"><input type="checkbox" checked={includeScan} disabled={!scanId||pending} onChange={event=>{setIncludeScan(event.target.checked);setConsent(false);resetConversation()}}/><span>结合这份检查的文字摘要</span></label><small>仅发送分析状态与结果摘要，不发送原始图片、三维文件或身份字段。切换检查会开始新对话。</small>{scansError&&<p role="status">{scansError}</p>}{!scansError&&scans.length===0&&<p className="assistant-no-record">还没有保存的检查，也可以直接聊聊。</p>}</details>
+          <label className="assistant-context-check"><input type="checkbox" checked={includeScan} disabled={!scans.some(scan=>scan.scan_id===scanId)||pending} onChange={event=>{setIncludeScan(event.target.checked);setConsent(false);resetConversation()}}/><span>结合这份检查的文字摘要</span></label><small>仅发送分析状态与结果摘要，不发送原始图片、三维文件或身份字段。切换检查会开始新对话。</small>{scansError&&<p role="status">{scansError}</p>}{!scansError&&scans.length===0&&<p className="assistant-no-record">还没有保存的检查，也可以直接聊聊。</p>}</details>
         <section className="assistant-boundary"><ShieldCheck size={18}/><div><h2>帮助理解，也尊重专业判断</h2><p>小安可以解释症状的可能原因和报告术语，无法直接看图、确诊或完成病理诊断。具体情况请由口腔医生结合检查判断。</p><p>如果出现呼吸困难、面颈部迅速肿胀或持续大量出血，请立即就医。</p><p>本次对话仅在当前页面有效，离开后结束。</p></div></section>
       </aside>
     </div>

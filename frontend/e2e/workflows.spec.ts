@@ -1,6 +1,11 @@
 import { fileURLToPath } from 'node:url'
 import { test, expect, type Page } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  const response = await page.request.post('/api/auth/login', {data: {username: 'test-admin', password: 'fixture-only-workspace-admin'}})
+  expect(response.ok()).toBeTruthy()
+})
+
 const fixture = (name: string) => fileURLToPath(new URL(`../../backend/tests/fixtures/meshes/${name}`, import.meta.url))
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACAAAAAYCAIAAAAUMWhjAAAANElEQVR4nGOUjJrGQEvARFPTGUYtIAKMxgFBMBpEBMFoEBEEo0FEEIwGEUEwGkQEAc2DCABLNwE5itR8ggAAAABJRU5ErkJggg==','base64')
 const image = {name:'synthetic.png',mimeType:'image/png',buffer:png}
@@ -14,7 +19,7 @@ test('Chinese navigation and acquisition remain usable on mobile and desktop', a
   await expect(page.getByRole('heading', {level: 1})).toHaveText('扫描工作台')
   await page.screenshot({path: '../../outputs/oralscan-zh-desktop.png', fullPage: true})
   await page.setViewportSize({width: 390, height: 844})
-  for (const name of ['分析', '报告', '历史记录', '模型管理', '设备管理', '设置', '总览', '扫描工作台']) {
+  for (const name of ['分析', '报告', '我的检查', '模型管理', '设备管理', '设置', '总览', '扫描工作台']) {
     await page.getByRole('button', {name: '打开导航'}).click()
     await page.getByRole('navigation', {name: '主导航'}).getByRole('link', {name, exact: true}).click()
     await expect(page.getByRole('heading', {level: 1})).toHaveText(name === '总览' ? '工作台总览' : name)

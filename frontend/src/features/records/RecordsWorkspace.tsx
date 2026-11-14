@@ -104,7 +104,9 @@ export default function RecordsWorkspace({ kind }: { kind: 'history' | 'reports'
           <Button variant="outline" disabled={!!deleting} onClick={() => void remove(scan)}>删除</Button>
         </div>
       </li>)}</ul>)}
-    {selected && kind === 'reports' && <ReportList key={selected} scanId={selected}/>}
+    {selected && kind === 'reports' && !loading && !error && (scans.some(scan => scan.scan_id === selected)
+      ? <ReportList key={selected} scanId={selected}/>
+      : <p role="status">这份检查不在你的记录中，请重新选择。</p>)}
     {detailsError && <p role="alert">{detailsError}</p>}
     {selected && kind === 'history' && !details && !detailsError && <p role="status">正在加载检查详情…</p>}
     {details?.scan_id === selected && <section className="record-detail">

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix='ORALSCAN_', env_file=ROOT / '.env', extra='ignore')
     database_url: str = f'sqlite:///{(ROOT / "data" / "oralscan.db").as_posix()}'
     storage_dir: Path = ROOT / 'data' / 'private'
+    secure_session_cookie: bool = False
     cors_origins: str = 'http://127.0.0.1:5173,http://localhost:5173'
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, gt=0)
     upload_body_timeout_seconds: float = Field(default=60, gt=0)
