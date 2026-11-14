@@ -36,6 +36,11 @@ test('registration returns the patient to a separate login page', async ({ page 
 })
 
 test('patients only see their own checks and copied links remain private', async ({ page: a, browser }) => {
+  // Public HTTP does not expose randomUUID. Exercise upload and persistence
+  // with that API absent, even though the test server uses trusted localhost.
+  await a.addInitScript(() => {
+    Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined, configurable: true })
+  })
   await a.goto('/scan')
   await expect(a.getByRole('heading', { name: '登录口腔检查工作台' })).toBeVisible()
   await expect(a.locator('input[type=file]')).toHaveCount(0)
