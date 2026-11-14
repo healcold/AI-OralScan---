@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
-from pydantic import Field, field_validator
+from typing import Literal
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +15,12 @@ class Settings(BaseSettings):
     upload_body_timeout_seconds: float = Field(default=60, gt=0)
     report_font: Path | None = None
     models_dir: Path = ROOT / 'data' / 'models'
+    assistant_provider: Literal['ollama', 'deepseek'] = 'ollama'
+    ollama_model: str = Field(default='qwen3.5:2b-q4_K_M', min_length=1, max_length=100)
+    ollama_timeout_seconds: float = Field(default=120, gt=0, le=180)
+    deepseek_api_key: SecretStr = SecretStr('')
+    deepseek_model: str = Field(default='deepseek-flash', min_length=1, max_length=100)
+    deepseek_timeout_seconds: float = Field(default=45, gt=0, le=120)
 
     @field_validator("report_font", mode="before")
     @classmethod

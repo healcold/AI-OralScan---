@@ -12,6 +12,9 @@ export type GeometryResponse = MeshAnalysisResult | {asset_id:string;job_id:stri
 export type ReportFormat = 'pdf' | 'json'
 export type SavedReport = {report_id:string;scan_id:string;format:ReportFormat;created_at:string;is_demo:boolean;download_url:string}
 export type HistoryFilters = {scan_id?:string;modality?:string;from?:string;to?:string}
+export type AssistantMessage = {role:'user'|'assistant';content:string}
+export type AssistantStatus = {provider:string;configured:boolean;model:string;message:string;local?:boolean;timeout_seconds?:number;max_history_bytes?:number}
+export type AssistantReply = {reply:string;provider:string;model:string;context_included:boolean;urgent?:boolean}
 export type UnifiedAnalysis = {
   scan_id:string
   assets:{asset_id:string;modality:string;source_type:string;filename:string;analysis_status:string;
@@ -33,6 +36,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 export const api = {
+  assistantStatus: () => request<AssistantStatus>('/assistant/status'),
+  assistantChat: (messages:AssistantMessage[],scanId:string|undefined,signal:AbortSignal,provider:'ollama'|'deepseek') => request<AssistantReply>('/assistant/chat',{
+    method:'POST',headers:{'Content-Type':'application/json'},signal,
+    body:JSON.stringify({messages,scan_id:scanId,consent:true,provider}),
+  }),
   scans: (filters:HistoryFilters={}) => {
     const query=new URLSearchParams()
     for(const [key,value] of Object.entries(filters)) if(value) query.set(key,value)
