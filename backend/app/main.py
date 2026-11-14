@@ -33,6 +33,8 @@ async def lifespan(_app):
     yield
 
 app = FastAPI(title='AI OralScan API', version='0.2.0', lifespan=lifespan)
+from .assistant import router as assistant_router
+app.include_router(assistant_router)
 from .inference.routes import router as inference_router
 app.include_router(inference_router)
 from .geometry.routes import router as geometry_router

@@ -12,3 +12,4 @@ frontend/.env.*
 frontend/playwright-report/
 frontend/test-results/
 .pytest_cache/
+.local-run/
