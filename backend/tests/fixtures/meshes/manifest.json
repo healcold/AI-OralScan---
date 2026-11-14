@@ -1,0 +1,135 @@
+{
+  "corrupt.stl": {
+    "valid": false
+  },
+  "degenerate.obj": {
+    "face_count": 1,
+    "surface_area": 0
+  },
+  "disconnected.obj": {
+    "components": 2,
+    "face_count": 8,
+    "vertex_count": 8
+  },
+  "empty.obj": {
+    "valid": false
+  },
+  "open.obj": {
+    "volume": null,
+    "watertight": false
+  },
+  "tetra.obj": {
+    "bounds": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "face_count": 4,
+    "surface_area": 2.3660254037844384,
+    "vertex_count": 4,
+    "volume": 0.16666666666666666,
+    "watertight": true
+  },
+  "tetra_ascii.ply": {
+    "bounds": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "face_count": 4,
+    "surface_area": 2.3660254037844384,
+    "vertex_count": 4,
+    "volume": 0.16666666666666666,
+    "watertight": true
+  },
+  "tetra_ascii.stl": {
+    "bounds": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "face_count": 4,
+    "surface_area": 2.3660254037844384,
+    "vertex_count": 4,
+    "volume": 0.16666666666666666,
+    "watertight": true
+  },
+  "tetra_binary.ply": {
+    "bounds": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "face_count": 4,
+    "surface_area": 2.3660254037844384,
+    "vertex_count": 4,
+    "volume": 0.16666666666666666,
+    "watertight": true
+  },
+  "tetra_binary.stl": {
+    "bounds": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "face_count": 4,
+    "surface_area": 2.3660254037844384,
+    "vertex_count": 4,
+    "volume": 0.16666666666666666,
+    "watertight": true
+  },
+  "with_material.obj": {
+    "bounds": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "face_count": 4,
+    "surface_area": 2.3660254037844384,
+    "vertex_count": 4,
+    "volume": 0.16666666666666666,
+    "watertight": true
+  }
+}

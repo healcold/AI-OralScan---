@@ -1,0 +1,9 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, expect, it, vi } from 'vitest'
+import GeometryWorkspace from './GeometryWorkspace'
+vi.mock('./MeshViewer',()=>({default:()=> <div>Model viewer</div>}))
+const scan={scan_id:'s1'};const asset={scan_id:'s1',asset_id:'a1',filename:'mesh.obj',modality:'mesh_3d',metadata:{unit:'unknown'}}
+const result={asset_id:'a1',job_id:'j1',status:'succeeded',geometry_metrics:{volume:{status:'unavailable',value:null,reason:'Mesh is open',unit:null},connected_components:{status:'ok',value:1,reason:null,unit:null}},mesh_quality:{watertight:{status:'warning',value:false,reason:'发现边界边',unit:null}},coordinate_system:{origin:'source-defined',axis_directions:'source-defined',unit:'unknown',scale_factor:1,note:'No transformation applied'},warnings:['Mesh is open'],processing_time_ms:12.2,regions:{status:'not_available',items:[]}}
+beforeEach(()=>vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{if(url==='/api/scans')return {ok:true,status:200,json:async()=>({items:[scan]})};if(url.endsWith('/assets'))return {ok:true,status:200,json:async()=>({items:[asset]})};if(url.endsWith('/geometry-analysis')&&init?.method==='POST')return {ok:true,status:200,json:async()=>result};return {ok:false,status:404,json:async()=>({error:{code:'GEOMETRY_NOT_ANALYZED',message:'Not analyzed'}})}})))
+it('runs geometry analysis and displays unavailable volume, quality and coordinate limits',async()=>{render(<GeometryWorkspace/>);expect(await screen.findByText('此模型尚未进行几何分析。')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'分析几何'}));expect(await screen.findByText('分析状态：已完成')).toBeInTheDocument();expect(screen.getByText('不可用', {selector: 'strong'})).toBeInTheDocument();expect(screen.getByText('发现边界边')).toBeInTheDocument();expect(screen.getByText(/原点：源文件定义/)).toHaveTextContent('单位：未知');expect(screen.getByText(/暂无分割区域数据/)).toBeInTheDocument()})
+

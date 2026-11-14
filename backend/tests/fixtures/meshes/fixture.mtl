@@ -1,0 +1,3 @@
+newmtl example
+Kd 1 0 0
+map_Kd ../outside.png

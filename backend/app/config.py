@@ -1,0 +1,25 @@
+from functools import lru_cache
+from pathlib import Path
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ROOT = Path(__file__).resolve().parent.parent
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix='ORALSCAN_', env_file=ROOT / '.env', extra='ignore')
+    database_url: str = f'sqlite:///{(ROOT / "data" / "oralscan.db").as_posix()}'
+    storage_dir: Path = ROOT / 'data' / 'private'
+    cors_origins: str = 'http://127.0.0.1:5173,http://localhost:5173'
+    max_upload_bytes: int = Field(default=25 * 1024 * 1024, gt=0)
+    upload_body_timeout_seconds: float = Field(default=60, gt=0)
+    report_font: Path | None = None
+    models_dir: Path = ROOT / 'data' / 'models'
+
+    @field_validator("report_font", mode="before")
+    @classmethod
+    def blank_font_uses_default(cls, value):
+        return None if value == "" else value
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
