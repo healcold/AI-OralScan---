@@ -3,9 +3,9 @@ import { Activity, ArrowRight, Check, CircleDot, Cpu, ScanLine, Sparkles } from 
 
 const stages = ['影像校准', '区域扫描', '结果整理']
 const findings = [
-  { label: '牙面区域 A', score: '0.94', tone: 'mint', position: 'one' },
-  { label: '牙面区域 B', score: '0.87', tone: 'violet', position: 'two' },
-  { label: '软组织区域', score: '0.82', tone: 'blue', position: 'three' },
+  { label: 'Crowding · 拥挤区域', score: '示例', tone: 'mint' },
+  { label: 'Spacing · 间隙区域', score: '示例', tone: 'violet' },
+  { label: 'Diastema · 牙间隙', score: '示例', tone: 'blue' },
 ]
 
 export default function ScanShowcase() {
@@ -37,13 +37,12 @@ export default function ScanShowcase() {
       <div className="stage-top"><span><CircleDot size={13}/> LIVE SCAN</span><span className="stage-mode">{running ? 'ANALYZING' : completed ? 'COMPLETE' : 'STANDBY'}</span></div>
       <div className="scan-art" aria-hidden="true">
         <div className="art-grid"/><div className="art-glow"/>
-        <img className="scan-photo" src="/assets/intraoral-demo.png" alt="合成口内影像演示素材"/>
-        {findings.map(f => <div key={f.position} className={`scan-box ${f.position} ${completed ? 'box-visible' : ''}`}><i/><span>{f.label}</span></div>)}
+        <img className="scan-photo" src="/assets/scan-detection-example.png" alt="四视角口腔影像与示例检测框"/>
         {running && <div className="scan-line"/>}
-        <div className="art-caption"><span>合成影像 · 界面演示</span><span>IMAGE VIEW 01</span></div>
+        <div className="art-caption"><span>四视角口腔影像 · 检测框示例</span><span>2 × 2 VIEWS</span></div>
       </div>
       <div className="stage-progress"><div className="stage-track">{stages.map((item, i) => <div className={`stage-step ${stage >= i ? 'done' : ''}`} key={item}><span>{stage > i || completed ? <Check size={12}/> : `0${i+1}`}</span>{item}</div>)}</div><div className="stage-bar"><i style={{width: `${Math.max(0, stage) / 3 * 100}%`}}/></div></div>
-      <div className="showcase-results"><div className="results-heading"><strong>区域标记</strong><span>{completed ? '3 个演示标记' : '等待扫描'}</span></div><div className="result-pills">{findings.map(f=><div key={f.position} className={`result-pill ${completed ? 'revealed' : ''}`}><i className={f.tone}/><span>{f.label}</span><b>{completed ? f.score : '—'}</b></div>)}</div><small>显示分值仅用于界面演示，不代表患病概率。</small></div>
+      <div className="showcase-results"><div className="results-heading"><strong>检测结果示例</strong><span>{completed ? '示例已展开' : '等待扫描演示'}</span></div><div className="result-pills">{findings.map(f=><div key={f.label} className={`result-pill ${completed ? 'revealed' : ''}`}><i className={f.tone}/><span>{f.label}</span><b>{completed ? f.score : '—'}</b></div>)}</div><small>采用你提供的检测结果画面作展示参考；不代表当前网站模型推理或诊断。</small></div>
     </div>
   </section>
 }
