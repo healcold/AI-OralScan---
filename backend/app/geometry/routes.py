@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from ..config import ROOT
+from ..auth import require_owned_scan, same_origin_write
 from ..database import get_db, lock_scan_write
-from ..models import AnalysisJob, ScanAsset, ScanSession
+from ..models import AnalysisJob, ScanAsset
 from ..storage import PrivateStorage, StorageError
 from .pipeline import failed_result
 from .schemas import MeshAnalysisResult
@@ -29,13 +30,12 @@ def error(code,message,status,details=None):
     return api_error(code,message,status,details)
 
 def check_asset(scan_id,asset_id,db):
-    if not db.get(ScanSession,str(scan_id)):return None,error('SCAN_NOT_FOUND','Scan not found',404)
     asset=db.get(ScanAsset,str(asset_id))
     if not asset or asset.scan_id!=str(scan_id):return None,error('ASSET_NOT_FOUND','Asset not found in this scan',404)
     if asset.modality!='mesh_3d':return None,error('INVALID_MODALITY','Asset is not a 3D mesh',422)
     return asset,None
 
-@router.post('/scans/{scan_id}/assets/{asset_id}/geometry-analysis')
+@router.post('/scans/{scan_id}/assets/{asset_id}/geometry-analysis', dependencies=[Depends(require_owned_scan), Depends(same_origin_write)])
 def analyze_geometry(scan_id:UUID,asset_id:UUID,db:Db,storage:PrivateStorage=Depends(get_private_storage)):
     if not geometry_slots.acquire(blocking=False):
         response=error('GEOMETRY_BUSY','Geometry analysis capacity is busy; retry shortly',503)
@@ -74,7 +74,7 @@ def run_geometry_analysis(scan_id,asset_id,db,storage):
     if result.status=='failed': return error('GEOMETRY_ANALYSIS_FAILED',result.warnings[0],422,{'job_id':job.job_id})
     return {**job.result_summary, 'findings': geometry_findings(job)}
 
-@router.get('/scans/{scan_id}/assets/{asset_id}/geometry-analysis')
+@router.get('/scans/{scan_id}/assets/{asset_id}/geometry-analysis', dependencies=[Depends(require_owned_scan)])
 def get_geometry(scan_id:UUID,asset_id:UUID,db:Db):
     asset,problem=check_asset(scan_id,asset_id,db)
     if problem:return problem

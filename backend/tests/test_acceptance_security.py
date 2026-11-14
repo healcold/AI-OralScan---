@@ -37,7 +37,7 @@ def test_cors_and_private_downloads(setup):
         storage.path(f"scans/{scan}/../{asset['asset_id']}.png")
     with pytest.raises(StorageError):
         storage.path(f"scans/{scan}/originals/../../{other}/private.png")
-    assert client.get(f"/api/scans/{uuid4()}/assets/not-a-uuid/content").status_code == 422
+    assert client.get(f"/api/scans/{scan}/assets/not-a-uuid/content").status_code == 422
 
 
 def test_report_render_failure_is_retriable_without_a_partial_report(setup, monkeypatch):

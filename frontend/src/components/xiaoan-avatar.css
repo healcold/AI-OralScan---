@@ -1,0 +1,11 @@
+.xiaoan-avatar { display: inline-flex; position: relative; width: 68px; height: 68px; flex-shrink: 0; }
+.xiaoan-avatar > svg { width: 100%; height: 100%; animation: xiaoan-float 5s ease-in-out infinite; }
+.xiaoan-eyes { transform-origin: 40px 38px; animation: xiaoan-blink 6s infinite; }
+.xiaoan-thinking-dots { display: flex; gap: 3px; align-items: center; position: absolute; right: -5px; bottom: 0; background: white; padding: 7px 8px; border: 1px solid #cfe3e7; border-radius: 14px; }
+.xiaoan-thinking-dots i { width: 4px; height: 4px; background: #438e94; border-radius: 50%; animation: xiaoan-dot 1.4s ease-in-out infinite; }
+.xiaoan-thinking-dots i:nth-child(2) { animation-delay: .15s; }
+.xiaoan-thinking-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes xiaoan-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes xiaoan-blink { 0%,44%,48%,100% { transform: scaleY(1); } 46% { transform: scaleY(.12); } }
+@keyframes xiaoan-dot { 0%,70%,100% { opacity: .4; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .xiaoan-avatar *, .xiaoan-avatar > svg { animation: none; } }

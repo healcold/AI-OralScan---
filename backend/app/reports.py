@@ -15,9 +15,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, defer
 
+from .auth import CurrentAccount, own_scan, require_owned_scan, same_origin_write
 from .config import ROOT
 from .database import get_db, lock_scan_write
-from .models import Report, ScanAsset, ScanSession, now
+from .models import Account, Report, ScanAsset, now
 from .report_pdf import render_pdf
 from .storage import PrivateStorage, get_storage
 from .unified import summarize_scan, timestamp
@@ -80,8 +81,8 @@ def report_out(report: Report, *, is_demo: bool | None = None) -> dict:
     }
 
 
-@router.post("/scans/{scan_id}/reports", status_code=201)
-def create_report(scan_id: UUID, request: ReportCreate, db: Session = Depends(get_db),
+@router.post("/scans/{scan_id}/reports", status_code=201, dependencies=[Depends(same_origin_write)])
+def create_report(scan_id: UUID, request: ReportCreate, account: CurrentAccount, db: Session = Depends(get_db),
                   storage: PrivateStorage = Depends(get_storage)):
     from .main import error
     if not _report_slots.acquire(blocking=False):
@@ -89,16 +90,16 @@ def create_report(scan_id: UUID, request: ReportCreate, db: Session = Depends(ge
         response.headers['Retry-After'] = '1'
         return response
     try:
-        return _create_report(scan_id, request, db, storage)
+        return _create_report(scan_id, request, account, db, storage)
     finally:
         _report_slots.release()
 
 
-def _create_report(scan_id: UUID, request: ReportCreate, db: Session, storage: PrivateStorage):
+def _create_report(scan_id: UUID, request: ReportCreate, account: Account, db: Session, storage: PrivateStorage):
     from .main import error
     if db.get_bind().dialect.name == "sqlite":
         db.connection().exec_driver_sql("BEGIN")
-    scan = db.get(ScanSession, str(scan_id))
+    scan = own_scan(db, account, scan_id)
     if not scan:
         return error("SCAN_NOT_FOUND", "Scan not found", 404)
     snapshot = summarize_scan(db, scan)
@@ -130,7 +131,7 @@ def _create_report(scan_id: UUID, request: ReportCreate, db: Session, storage: P
     key = f"scans/{scan_id}/reports/{report_id}.{request.format}"
     path = storage.path(key)
     lock_scan_write(db)
-    if not db.get(ScanSession, str(scan_id)):
+    if not own_scan(db, account, scan_id):
         return error("SCAN_NOT_FOUND", "Scan was removed during report generation", 404)
     report = Report(report_id=report_id, scan_id=str(scan_id), format=request.format,
                     storage_key=key, analysis_snapshot=snapshot, disclaimer=DISCLAIMER, created_at=generated_at)
@@ -150,11 +151,8 @@ def _create_report(scan_id: UUID, request: ReportCreate, db: Session, storage: P
     return report_out(report)
 
 
-@router.get("/scans/{scan_id}/reports")
+@router.get("/scans/{scan_id}/reports", dependencies=[Depends(require_owned_scan)])
 def list_reports(scan_id: UUID, db: Session = Depends(get_db)):
-    from .main import error
-    if not db.get(ScanSession, str(scan_id)):
-        return error("SCAN_NOT_FOUND", "Scan not found", 404)
     # Snapshots contain embedded previews. Keep them out of metadata responses
     # so listing a long report history does not decode every image into memory.
     reports = db.execute(
@@ -165,7 +163,7 @@ def list_reports(scan_id: UUID, db: Session = Depends(get_db)):
     return {"items": [report_out(report, is_demo=bool(is_demo)) for report, is_demo in reports]}
 
 
-@router.get("/scans/{scan_id}/reports/{report_id}/content")
+@router.get("/scans/{scan_id}/reports/{report_id}/content", dependencies=[Depends(require_owned_scan)])
 def report_content(scan_id: UUID, report_id: UUID, db: Session = Depends(get_db),
                    storage: PrivateStorage = Depends(get_storage)):
     from .main import error

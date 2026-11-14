@@ -140,7 +140,8 @@ def test_inference_releases_database_and_exposes_running_job(inference_setup,set
             with factory() as other:
                 other.connection().exec_driver_sql('PRAGMA busy_timeout=50')
                 assert other.scalar(select(AnalysisJob.status))=='running'
-                other.add(ScanSession(metadata_json={},source_types=[]))
+                owner_id = other.get(ScanSession, scan).owner_id
+                other.add(ScanSession(owner_id=owner_id,metadata_json={},source_types=[]))
                 other.commit()
             return []
 

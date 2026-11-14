@@ -1,4 +1,5 @@
 import { zh } from './zh'
+export type Account = {username: string; role: 'patient' | 'admin'}
 export type Scan = { scan_id: string; created_at: string; updated_at: string; status: string; source_types: string[]; metadata: Record<string, unknown> }
 export type MeshMetadata = { vertex_count: number; face_count: number; bounding_box: number[][]; surface_area: number; volume: number|null; volume_reason: string|null; watertight: boolean; winding_consistent: boolean; unit: string; warnings: string[]; quality: string }
 export type Asset = { asset_id: string; scan_id: string; modality: string; source_type: string; filename: string; file_size: number; file_format: string; sha256: string; metadata: MeshMetadata }
@@ -29,6 +30,7 @@ export class ApiError extends Error { constructor(message:string,public status:n
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init)
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('oralscan:session-expired'))
     const data = await response.json().catch(() => null)
     throw new ApiError(zh(data?.error?.message ?? `请求失败（${response.status}）`),response.status,data?.error?.code ?? 'REQUEST_FAILED')
   }
@@ -36,10 +38,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 export const api = {
+  account: () => request<Account>('/auth/me'),
+  register: (phone: string, password: string) => request<Account>('/auth/register', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password}),
+  }),
+  login: (username: string, password: string) => request<Account>('/auth/login', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password}),
+  }),
+  logout: () => request<void>('/auth/logout', {method: 'POST'}),
   assistantStatus: () => request<AssistantStatus>('/assistant/status'),
-  assistantChat: (messages:AssistantMessage[],scanId:string|undefined,signal:AbortSignal,provider:'ollama'|'deepseek') => request<AssistantReply>('/assistant/chat',{
+  assistantChat: (messages:AssistantMessage[],scanId:string|undefined,signal:AbortSignal,provider:'ollama'|'deepseek', result?:{asset_id:string;intent:'explain_result'}) => request<AssistantReply>('/assistant/chat',{
     method:'POST',headers:{'Content-Type':'application/json'},signal,
-    body:JSON.stringify({messages,scan_id:scanId,consent:true,provider}),
+    body:JSON.stringify({messages,scan_id:scanId,consent:true,provider,...result}),
   }),
   scans: (filters:HistoryFilters={}) => {
     const query=new URLSearchParams()
@@ -69,7 +79,7 @@ export const api = {
     xhr.upload.onprogress = event => { if(event.lengthComputable) progress(Math.round(event.loaded / event.total * 100)) }
     xhr.onerror = () => reject(new Error('上传时网络连接异常'))
     xhr.onabort = () => reject(new Error('上传已取消'))
-    xhr.onload = () => { try { const result=JSON.parse(xhr.responseText); if(xhr.status>=200 && xhr.status<300) resolve(result as Asset); else reject(new Error(result.error?.message ?? `上传失败（${xhr.status})`)) } catch { reject(new Error(`服务器响应无效（${xhr.status})`)) } }
+    xhr.onload = () => { if(xhr.status===401)window.dispatchEvent(new Event('oralscan:session-expired')); try { const result=JSON.parse(xhr.responseText); if(xhr.status>=200 && xhr.status<300) resolve(result as Asset); else reject(new Error(result.error?.message ?? `上传失败（${xhr.status})`)) } catch { reject(new Error(`服务器响应无效（${xhr.status})`)) } }
     const body=new FormData(); body.append('file',file); body.append('source_type',source); if(source==='camera') body.append('captured_at',new Date(file.lastModified).toISOString()); if(source==='model_import') body.append('unit',unit); xhr.send(body)
   }),
 }

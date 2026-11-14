@@ -1,0 +1,56 @@
+.patient-guide { border: 1px solid #cfe3e7; border-radius: 14px; padding: 24px; background: linear-gradient(150deg, #f3faf9 0%, #fff 55%); min-width: 0; overflow-wrap: anywhere; }
+.patient-guide-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.patient-guide-header > div { flex: 1; min-width: 150px; }
+.patient-guide-kicker { color: #4c777b; font-size: 12px; letter-spacing: .4px; }
+.patient-guide-header h2 { margin: 4px 0 0; font-size: 20px; line-height: 1.55; color: #244c57; font-weight: 600; }
+.patient-guide-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 9px; border-radius: 20px; background: #e4f1ed; color: #36725c; }
+.patient-guide-state::before { content: ''; width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+.patient-guide-state.state-demo, .patient-guide-state.state-failed { background: #f8f1e5; color: #806334; }
+.patient-guide-intro { font-size: 15px; line-height: 1.9; color: #526c79; margin: 18px 0; }
+.patient-guide-form > label:first-child { display: flex; gap: 8px; align-items: center; color: #294b59; font-size: 14px; margin-bottom: 8px; }
+.patient-guide-form > label:first-child span { color: #687e87; font-size: 12px; }
+.patient-guide-form textarea { display: block; width: 100%; min-height: 94px; resize: vertical; max-height: 220px; padding: 12px; font: inherit; font-size: 16px; color: #294b59; line-height: 1.7; border: 1px solid #c8dce2; border-radius: 9px; background: white; }
+.patient-guide-form textarea::placeholder { color: #73848e; font-size: 14px; }
+.patient-guide-consent { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; font-size: 12px; line-height: 1.8; color: #526c79; cursor: pointer; }
+.patient-guide-consent input { flex-shrink: 0; width: 16px; height: 16px; margin-top: 3px; accent-color: var(--accent); }
+.patient-guide-submit, .patient-guide-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.patient-guide-submit > .button, .patient-guide-actions > .button { min-height: 44px; font-size: 14px; }
+.patient-guide-submit small { font-size: 12px; color: #607782; }
+.patient-guide-text-button { padding: 10px; min-height: 44px; color: #17677f; font-size: 13px; border: none; background: transparent; text-decoration: underline; }
+.patient-guide-offline, .patient-guide-error { border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.8; color: #805c37; background: #fbf3e8; margin: 14px 0; }
+.patient-guide-offline button { background: none; border: none; color: #17677f; padding: 6px; text-decoration: underline; }
+.patient-guide-thinking { font-size: 14px; line-height: 1.8; color: #526c79; margin: 14px 0 0; }
+.patient-guide-answer { margin-top: 20px; padding: 20px; border: 1px solid #deeaed; border-radius: 12px; background: white; }
+.patient-guide-answer h3 { font-size: 16px; color: #294b59; margin: 0 0 12px; font-weight: 600; }
+.patient-guide-answer-text { white-space: pre-wrap; font-size: 16px; color: #355362; line-height: 1.95; }
+.patient-guide-source { font-size: 12px; line-height: 1.8; color: #637983; margin: 14px 0 0; }
+.patient-guide-answer.is-urgent { border-color: #e4b1a7; background: #fff8f5; }
+.patient-guide-answer.is-urgent h3 { color: #984e3d; }
+.patient-guide-followups { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.patient-guide-followups button { border: 1px solid #cfe3e7; padding: 9px 11px; min-height: 44px; border-radius: 8px; font-size: 13px; color: #17677f; background: #f6fbfb; text-align: left; }
+.patient-guide-followups button:disabled { opacity: .5; cursor: not-allowed; }
+.patient-guide-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #dce9eb; font-size: 12px; color: #607782; }
+.patient-guide-footer > span, .patient-guide-footer > a { display: inline-flex; align-items: center; gap: 6px; }
+.patient-guide-footer > a { color: #17677f; min-height: 36px; }
+.patient-guide-unavailable { color: #607782; font-size: 14px; line-height: 1.8; }
+.patient-guide-urgent-note { font-size: 12px; line-height: 1.8; color: #786251; margin: 8px 0 0; }
+.analysis-patient-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
+.analysis-patient-layout .analysis-workspace { display: flex; flex-direction: column; }
+.analysis-patient-layout .analysis-stage { min-height: 260px; }
+.analysis-patient-layout .analysis-findings { background: #fafcfd; }
+.guide-spinner { animation: guide-spin 1.3s linear infinite; }
+@keyframes guide-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1150px) { .analysis-patient-layout { display: flex; flex-direction: column; } .analysis-patient-layout > * { width: 100%; } .analysis-patient-layout > .patient-guide { order: -1; } }
+@media (max-width: 560px) { .patient-guide { padding: 18px 14px; } .patient-guide-header { gap: 8px; } .patient-guide-header .xiaoan-avatar { width: 54px; height: 54px; } .patient-guide-header h2 { font-size: 18px; } .patient-guide-header > div { min-width: 130px; } .patient-guide-answer { padding: 14px; } .patient-guide-submit .button { width: 100%; white-space: normal; } }
+@media (prefers-reduced-motion: reduce) { .guide-spinner { animation: none; } }
+
+.app:has(.patient-guide) > .assistant-shortcut { display: none; }
+@media (max-width: 560px) {
+  .content:has(.analysis-patient-layout) > .page-title .eyebrow { display: none; }
+  .content:has(.analysis-patient-layout) > .page-title { padding-bottom: 16px; margin-bottom: 18px; }
+  .content:has(.analysis-patient-layout) > .page-title p { margin-top: 6px; }
+  .analysis-content:has(.patient-guide) > .analysis-selector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .analysis-content:has(.patient-guide) > .analysis-selector > label { min-width: 0; }
+  .analysis-content:has(.patient-guide) > .analysis-selector select { width: 100%; max-width: none; min-height: 44px; font-size: 14px; }
+  .analysis-content:has(.patient-guide) > .analysis-selector > .button { width: 100%; min-height: 44px; }
+}

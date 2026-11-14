@@ -10,6 +10,7 @@
 - **多种采集入口**：通过图片上传、浏览器摄像头或导入三维模型开始体验工作流程。
 - **结果与档案页面**：浏览分析、检查记录和报告页面，了解这些信息如何组织在一起。
 - **三维模型预览**：导入 STL、OBJ 或 PLY 文件，查看模型和基础几何信息。
+- **结果陪伴解读**：图像分析完成后，小安在结果旁解释文字标签、结合患者描述整理就医建议；演示和失败任务不作为病情依据。
 - **口腔健康 AI 助理**：温和回应担忧，解释健康信息和检查文字结果，提供与当前工作台一致的操作引导。默认使用免费本地 Qwen3.5，也支持可选 DeepSeek 云端服务。
 
 扫描工作台中的动画和结果卡片用于展示交互流程。仓库已经上传 `best.onnx` 模型文件，但目前还没有接入网站推理；页面展示的检测画面是示例，不是网站对当前照片运行模型后得到的结果。
@@ -41,6 +42,24 @@ pnpm dev
 
 后端的并发限制、数据库配置及验证命令见 [后端稳定性说明](docs/BACKEND_STABILITY.md)。
 
+## 创建登录账号
+
+患者可在 `/register` 使用中国大陆手机号注册，自行设置至少 6 个字符的密码。手机号用作登录账号，注册不发送验证码。创建成功后，返回 `/login` 输入手机号和密码登录。
+
+维护者也可以从后端目录手动创建账号（包括管理员账号）：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.accounts patient-a
+.\.venv\Scripts\python.exe -m app.accounts patient-b
+.\.venv\Scripts\python.exe -m app.accounts operator --admin
+```
+
+按提示设置各自的密码。打开前端并登录后，在「我的检查」查看当前账号的记录。管理员可管理模型，其账号也只能查看自己的检查。已有数据库会增加归属字段，之前的记录保留为未分配，任何账号都不会自动获得访问权；升级前请备份数据库和私有文件。
+
+部署时通过同一个 HTTPS 域名提供前端和 `/api`，代理保留外部 `Host`，并设置 `ORALSCAN_SECURE_SESSION_COOKIE=true`。口腔图片和报告的存储目录应保持私有，由应用校验账号后提供下载。
+
+本地双账号验收：在前端目录运行 `pnpm build`，再运行 `pnpm exec playwright test e2e/patient-access.spec.ts`。测试使用独立临时数据库和模拟图片，验证另一个账号无法访问直接链接。
+
 ## 启用免费 AI 助理
 
 安装 [Ollama](https://ollama.com/download/windows) 后，下载本地文字模型：
@@ -55,6 +74,7 @@ ollama pull qwen3.5:2b-q4_K_M
 
 ## 想了解实现细节？
 
+- [PR #4 整合记录与旧测试数据处理](docs/PR4_INTEGRATION.md)
 - [华为云部署工作日志、Linux 与网络服务教程（含脱敏配置和下载包）](docs/deployment/README.md)
 - [系统架构](docs/ARCHITECTURE.md)
 - [模型接入说明](docs/MODEL_INTEGRATION.md)

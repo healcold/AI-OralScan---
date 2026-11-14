@@ -7,8 +7,25 @@ from .database import Base
 def uid(): return str(uuid4())
 def now(): return datetime.now(timezone.utc)
 
+class Account(Base):
+    __tablename__ = 'accounts'
+    account_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    password_salt: Mapped[str] = mapped_column(String(48))
+    role: Mapped[str] = mapped_column(String(16), default='patient')
+
+
+class LoginSession(Base):
+    __tablename__ = 'login_sessions'
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey('accounts.account_id', ondelete='CASCADE'), index=True)
+    expires_at: Mapped[int] = mapped_column(Integer, index=True)
+
+
 class ScanSession(Base):
     __tablename__ = 'scan_sessions'
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey('accounts.account_id'), index=True, nullable=True)
     scan_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
