@@ -39,8 +39,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 export const api = {
   account: () => request<Account>('/auth/me'),
-  register: (phone: string, password: string) => request<Account>('/auth/register', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password}),
+  register: (phone: string, password: string, question: string, answer: string, customPrompt: string) => request<Account>('/auth/register', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password, question, answer, custom_prompt: customPrompt}),
+  }),
+  resetPassword: (phone: string, password: string, question: string, answer: string, customPrompt: string) => request<void>('/auth/reset-password', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password, question, answer, custom_prompt: customPrompt}),
   }),
   login: (username: string, password: string) => request<Account>('/auth/login', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password}),

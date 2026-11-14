@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ScanLine } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import RegistrationForm from './RegistrationForm'
+import ResetPasswordForm from './ResetPasswordForm'
 import { api, ApiError, type Account } from '../../lib/api'
 import { Button } from '../../components/ui/button'
 import './auth.css'
@@ -14,6 +15,7 @@ export default function SessionGate({ children }: {
   const location = useLocation()
   const navigate = useNavigate()
   const registration = location.pathname === '/register'
+  const resetting = location.pathname === '/forgot-password'
   const [state, setState] = useState<State>({ phase: 'loading' })
   const [revision, setRevision] = useState(0)
   const [username, setUsername] = useState('')
@@ -69,11 +71,12 @@ export default function SessionGate({ children }: {
   return <main className="auth-screen">
     <section className="auth-card" aria-labelledby="login-title">
       <div className="auth-brand"><ScanLine size={24}/> AI OralScan</div>
-      <h1 id="login-title">{registration ? '注册患者账号' : '登录口腔检查工作台'}</h1>
-      <p>{registration ? '请用自己的中国大陆手机号注册，并自行设置密码。' : '使用手机号或已有账号登录，查看自己的检查、照片和报告。'}</p>
+      <h1 id="login-title">{registration ? '注册患者账号' : resetting ? '找回密码' : '登录口腔检查工作台'}</h1>
+      <p>{registration ? '请用自己的中国大陆手机号注册，并自行设置密码。' : resetting ? '用手机号和注册时设置的找回答案重设密码。' : '使用手机号或已有账号登录，查看自己的检查、照片和报告。'}</p>
       {state.phase === 'loading' ? <p role="status">正在确认登录状态…</p>
         : state.phase === 'unavailable' ? <div role="alert">暂时无法连接工作台。<Button variant="outline" onClick={() => { setState({ phase: 'loading' }); setRevision(current => current + 1) }}>重试</Button></div>
         : registration ? <RegistrationForm/>
+        : resetting ? <ResetPasswordForm initialPhone={username}/>
         : <><form onSubmit={event => void enter(event)}>
           <label htmlFor="login-username">账号</label>
           <input id="login-username" value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" required maxLength={64}/>
@@ -81,7 +84,7 @@ export default function SessionGate({ children }: {
           <input id="login-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required maxLength={128}/>
           {error && <p role="alert">{error}</p>}
           <Button type="submit" disabled={busy || !username.trim() || !password}>{busy ? '正在登录…' : '登录'}</Button>
-        </form><p className="auth-note">没有账号？<Link to="/register">注册账号</Link></p></>}
+        </form><div className="auth-note auth-links"><span>没有账号？ <Link to="/register">注册账号</Link></span><Link to="/forgot-password">忘记密码？</Link></div></>}
     </section>
   </main>
 }

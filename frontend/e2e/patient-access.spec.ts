@@ -7,14 +7,26 @@ async function login(page: Page, suffix: 'a' | 'b') {
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
 }
 
-test('registration returns the patient to a separate login page', async ({ page }) => {
+test('patients can register and reset their password using Chinese recovery text', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('link', { name: '注册账号' }).click()
   await expect(page).toHaveURL(/\/register$/)
   const phone = '13900006123'
   const password = 'demo!6'
+  const prompt = '我记得课堂上的哪件事？'
+  const answer = '松鼠'
   await page.getByLabel('手机号', { exact: true }).fill(phone)
   await page.getByLabel('设置密码').fill(password)
+  await page.getByLabel('找回提示', { exact: true }).selectOption('custom')
+  await page.getByLabel('自定义提示').fill(prompt)
+  const recoveryAnswer = page.getByLabel('找回答案')
+  await expect(recoveryAnswer).toHaveAttribute('type', 'text')
+  await recoveryAnswer.focus()
+  await page.keyboard.insertText(answer)
+  await page.getByRole('button', { name: '隐藏答案' }).click()
+  await expect(recoveryAnswer).toHaveAttribute('type', 'password')
+  await page.getByRole('button', { name: '显示答案' }).click()
+  await expect(recoveryAnswer).toHaveValue(answer)
   const confirmation = page.getByLabel('确认密码')
   await confirmation.fill('different')
   const create = page.getByRole('button', { name: '创建账号' })
@@ -33,6 +45,31 @@ test('registration returns the patient to a separate login page', async ({ page 
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('heading', { name: '我的检查' })).toBeVisible()
   await expect(page.getByText('暂无匹配的检查。')).toBeVisible()
+
+  await page.getByRole('button', { name: '退出登录' }).click()
+  await page.getByRole('link', { name: '忘记密码？' }).click()
+  await expect(page).toHaveURL(/\/forgot-password$/)
+  await page.getByLabel('手机号', { exact: true }).fill(phone)
+  await page.getByLabel('找回提示', { exact: true }).selectOption('custom')
+  const resetPrompt = page.getByLabel('自定义提示')
+  await resetPrompt.fill('与注册不同的中文提示')
+  const resetAnswer = page.getByLabel('找回答案')
+  await expect(resetAnswer).toHaveAttribute('type', 'text')
+  await resetAnswer.focus()
+  await page.keyboard.insertText(answer)
+  const newPassword = 'new-fixture-password'
+  await page.getByLabel('新密码（至少 6 个字符）').fill(newPassword)
+  await page.getByLabel('确认新密码').fill(newPassword)
+  await page.getByRole('button', { name: '重设密码' }).click()
+  await expect(page.getByRole('alert')).toContainText('无法核对找回信息')
+  await resetPrompt.fill(prompt)
+  await page.getByRole('button', { name: '重设密码' }).click()
+  await expect(page.getByRole('heading', { name: '密码已重设' })).toBeVisible()
+  await page.getByRole('link', { name: '返回登录' }).click()
+  await expect(page.getByLabel('账号', { exact: true })).toHaveValue(phone)
+  await page.getByLabel('密码', { exact: true }).fill(newPassword)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '我的检查' })).toBeVisible()
 })
 
 test('patients only see their own checks and copied links remain private', async ({ page: a, browser }) => {

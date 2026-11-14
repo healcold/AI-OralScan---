@@ -4,7 +4,7 @@ from sqlalchemy import inspect
 from app.auth import COOKIE, create_account
 from app.database import initialize_schema, make_engine
 from app.main import app
-from app.models import ScanSession
+from app.models import AccountRecovery, ScanSession
 from test_api import create, upload
 
 
@@ -96,11 +96,12 @@ def test_registration_creates_only_a_patient_and_requires_separate_login(setup):
 
     phone = '13900006124'
     password = 'demo!6'
-    body = {'phone': phone, 'password': password}
+    body = {'phone': phone, 'password': password, 'question': 'teacher', 'answer': '松'}
     with TestClient(app, raise_server_exceptions=False, base_url='https://testserver') as guest:
         assert guest.post('/api/auth/register', json={**body, 'phone': '123'}).status_code == 422
         assert guest.post('/api/auth/register', json={**body, 'password': 'short'}).status_code == 422
         assert guest.post('/api/auth/register', json={**body, 'role': 'admin'}).status_code == 422
+        assert guest.post('/api/auth/register', json={**body, 'answer': '  '}).status_code == 422
         response = guest.post('/api/auth/register', json=body)
         assert response.status_code == 201
         assert response.json() == {'username': phone, 'role': 'patient'}
@@ -111,3 +112,45 @@ def test_registration_creates_only_a_patient_and_requires_separate_login(setup):
         assert guest.post('/api/auth/login', json={'username': phone, 'password': password}).status_code == 200
         assert guest.get('/api/scans').json()['items'] == []
         assert guest.get(f'/api/scans/{legacy_id}').status_code == 404
+
+
+def test_password_reset_requires_private_answer_and_revokes_sessions(setup):
+    _, _, factory = setup
+    phone, old_password, new_password = '13900006125', 'old-password', 'new-password'
+    answer = '模拟长答案' * 30
+    recovery = {'phone': phone, 'question': 'mother', 'answer': answer}
+    reset = {**recovery, 'password': new_password}
+    login = {'username': phone, 'password': old_password}
+    with TestClient(app, base_url='https://testserver') as existing, TestClient(app, base_url='https://testserver') as guest:
+        assert existing.post('/api/auth/register', json={**recovery, 'password': old_password}).status_code == 201
+        with factory() as db:
+            saved = db.query(AccountRecovery).one()
+            assert len(saved.answer_hash) == 128 and saved.answer_hash != answer
+        assert existing.post('/api/auth/login', json=login).status_code == 200
+        scan_id = create(existing)
+
+        def submit(**changes):
+            return guest.post('/api/auth/reset-password', json={**reset, **changes})
+
+        assert guest.post('/api/auth/reset-password', json=reset, headers={'Origin': 'https://other.example'}).status_code == 403
+        unknown = submit(phone='13900006126')
+        wrong = submit(answer='incorrect-private-answer')
+        assert unknown.status_code == wrong.status_code == 401
+        assert unknown.json()['error']['message'] == wrong.json()['error']['message']
+        assert submit(question='father').status_code == 401
+        assert existing.get('/api/auth/me').status_code == 200
+        response = submit()
+        assert response.status_code == 204 and 'set-cookie' not in response.headers
+        assert existing.get(f'/api/scans/{scan_id}').status_code == 401
+        assert guest.get('/api/auth/me').status_code == 401
+        assert guest.post('/api/auth/login', json=login).status_code == 401
+        assert guest.post('/api/auth/login', json={**login, 'password': new_password}).status_code == 200
+        assert guest.get(f'/api/scans/{scan_id}').status_code == 200
+
+
+def test_password_reset_caps_attempts_per_account(setup):
+    client, _, _ = setup
+    body = {'phone': '13900006127', 'question': 'teacher', 'answer': 'incorrect-secret-answer', 'password': 'new-password'}
+    for _ in range(5):
+        assert client.post('/api/auth/reset-password', json=body).status_code == 401
+    assert client.post('/api/auth/reset-password', json=body).status_code == 429
