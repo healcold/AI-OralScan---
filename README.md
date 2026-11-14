@@ -21,7 +21,7 @@
 
 ## 在本地体验
 
-需要 Python 3、Node.js 22 及 pnpm。先在一个 PowerShell 窗口启动后端：
+需要 Python 3.11 或更新版本（推荐 3.12）、Node.js 22 及 pnpm。先在一个 PowerShell 窗口启动后端：
 
 ```powershell
 cd backend
@@ -39,6 +39,8 @@ pnpm dev
 ```
 
 打开前端终端显示的本地网址即可。摄像头采集需要浏览器授权；保存检查、上传文件等功能需要后端保持运行。
+
+后端的并发限制、数据库配置及验证命令见 [后端稳定性说明](docs/BACKEND_STABILITY.md)。
 
 ## 创建登录账号
 
@@ -72,6 +74,7 @@ ollama pull qwen3.5:2b-q4_K_M
 
 ## 想了解实现细节？
 
+- [华为云部署工作日志、Linux 与网络服务教程（含脱敏配置和下载包）](docs/deployment/README.md)
 - [系统架构](docs/ARCHITECTURE.md)
 - [模型接入说明](docs/MODEL_INTEGRATION.md)
 - [AI 助理接入说明](docs/AI_ASSISTANT.md)

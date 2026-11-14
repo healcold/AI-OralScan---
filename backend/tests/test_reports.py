@@ -1,16 +1,21 @@
 import base64
 import io
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from os import environ
+from threading import Barrier, Event
 
 from PIL import Image
+from sqlalchemy import event, inspect
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from app.geometry.routes import get_private_storage as get_mesh_storage
 from app.inference.inference_engine import RuntimeRegistry, get_runtime
 from app.inference.routes import get_private_storage as get_image_storage
 from app.main import app
-from app.models import ScanSession
+from app.models import Report, ScanSession
 from test_api import create, upload, image_bytes
 from test_geometry import upload_mesh
 
@@ -107,3 +112,108 @@ def test_multimodal_history_report_round_trip(setup):
     assert client.delete(base).status_code == 204
     assert client.get(saved["pdf"]["download_url"]).status_code == 404
     assert not storage.scan_dir(scan).exists()
+
+
+def test_report_commit_failure_removes_file_and_allows_retry(setup, monkeypatch):
+    client, storage, _ = setup
+    scan = create(client)
+    assert upload(client, scan).status_code == 201
+    url = f"/api/scans/{scan}/reports"
+    commit = Session.commit
+
+    def failing_commit(db):
+        if any(isinstance(row, Report) for row in db.new):
+            raise OperationalError("INSERT", {}, RuntimeError("injected commit failure"))
+        return commit(db)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(Session, "commit", failing_commit)
+        response = client.post(url, json={"format": "json"})
+    assert response.status_code == 500
+    assert client.get(url).json()["items"] == []
+    assert not list((storage.scan_dir(scan) / "reports").glob("*.json"))
+    assert client.post(url, json={"format": "json"}).status_code == 201
+
+
+def test_report_does_not_recreate_scan_deleted_during_render(setup, monkeypatch):
+    import app.reports as reports
+
+    client, storage, _ = setup
+    scan = create(client)
+    assert upload(client, scan).status_code == 201
+    preview = reports.asset_preview
+
+    def delete_after_preview(asset, private_storage):
+        result = preview(asset, private_storage)
+        assert client.delete(f"/api/scans/{scan}").status_code == 204
+        return result
+
+    monkeypatch.setattr(reports, "asset_preview", delete_after_preview)
+    response = client.post(f"/api/scans/{scan}/reports", json={"format": "json"})
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SCAN_NOT_FOUND"
+    assert not storage.scan_dir(scan).exists()
+
+
+def test_unrenderable_preview_does_not_discard_report(setup, monkeypatch):
+    client, _, _ = setup
+    scan = create(client)
+    assert upload(client, scan).status_code == 201
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    response = client.post(f"/api/scans/{scan}/reports", json={"format": "json"})
+    assert response.status_code == 201
+    snapshot = client.get(response.json()["download_url"]).json()
+    assert snapshot["assets"][0]["preview"]["status"] == "unavailable"
+
+
+def test_report_metadata_and_download_do_not_load_preview_snapshot(setup):
+    client, _, _ = setup
+    scan = create(client)
+    assert upload(client, scan).status_code == 201
+    url = f"/api/scans/{scan}/reports"
+    saved = client.post(url, json={"format": "json"}).json()
+    loaded = []
+
+    def check_deferred(report, _context):
+        loaded.append(report.report_id)
+        assert "analysis_snapshot" in inspect(report).unloaded
+
+    event.listen(Report, "load", check_deferred)
+    try:
+        listing = client.get(url)
+        download = client.get(saved["download_url"])
+    finally:
+        event.remove(Report, "load", check_deferred)
+    assert listing.status_code == download.status_code == 200
+    assert listing.json()["items"] == [saved]
+    assert loaded == [saved["report_id"], saved["report_id"]]
+
+
+def test_report_generation_rejects_excess_concurrency_and_recovers(setup, monkeypatch):
+    import app.reports as reports
+
+    client, _, _ = setup
+    scan = create(client)
+    assert upload(client, scan).status_code == 201
+    url = f"/api/scans/{scan}/reports"
+    ready, finish = Barrier(3), Event()
+    preview = reports.asset_preview
+
+    def slow_preview(asset, storage):
+        ready.wait(timeout=10)
+        assert finish.wait(timeout=10)
+        return preview(asset, storage)
+
+    with monkeypatch.context() as fault, ThreadPoolExecutor(max_workers=2) as pool:
+        fault.setattr(reports, "asset_preview", slow_preview)
+        pending = [pool.submit(client.post, url, json={"format": "json"}) for _ in range(2)]
+        try:
+            ready.wait(timeout=10)
+            rejected = client.post(url, json={"format": "json"})
+            assert rejected.status_code == 503
+            assert rejected.json()["error"]["code"] == "REPORT_BUSY"
+            assert client.get("/api/health").status_code == 200
+        finally:
+            finish.set()
+        assert all(task.result(timeout=10).status_code == 201 for task in pending)
+    assert client.post(url, json={"format": "json"}).status_code == 201

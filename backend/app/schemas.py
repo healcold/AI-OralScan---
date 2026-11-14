@@ -1,10 +1,22 @@
 from datetime import datetime
+import json
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 class ScanCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator('metadata')
+    @classmethod
+    def valid_json_metadata(cls, value):
+        # Any-typed nested values bypass Pydantic's float validation. Validate
+        # before committing a row that later cannot be serialized or exported.
+        try:
+            json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise ValueError('Metadata must contain finite JSON values and valid Unicode') from exc
+        return value
 
 class ScanOut(BaseModel):
     scan_id: str

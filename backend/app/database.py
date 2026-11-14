@@ -1,16 +1,29 @@
+from contextlib import closing
+
 from sqlalchemy import create_engine, event, inspect
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from .config import get_settings
 
 class Base(DeclarativeBase):
     pass
 
-def make_engine(url: str):
-    engine = create_engine(url, hide_parameters=True, connect_args={'check_same_thread': False} if url.startswith('sqlite') else {})
-    if url.startswith('sqlite'):
+def make_engine(url: str, *, busy_timeout_seconds: float | None = None):
+    parsed = make_url(url)
+    sqlite = parsed.get_backend_name() == 'sqlite'
+    timeout = get_settings().sqlite_busy_timeout_seconds if busy_timeout_seconds is None else busy_timeout_seconds
+    engine = create_engine(
+        url, hide_parameters=True, pool_pre_ping=True,
+        connect_args={'check_same_thread': False, 'timeout': timeout} if sqlite else {},
+    )
+    if sqlite:
         @event.listens_for(engine, 'connect')
         def enable_foreign_keys(connection, _record):
-            connection.execute('PRAGMA foreign_keys=ON')
+            with closing(connection.cursor()) as cursor:
+                cursor.execute('PRAGMA foreign_keys=ON')
+                cursor.execute(f'PRAGMA busy_timeout={int(timeout * 1000)}')
+                if parsed.database not in (None, '', ':memory:') and parsed.query.get('mode') != 'memory':
+                    cursor.execute('PRAGMA journal_mode=WAL')
     return engine
 
 engine = make_engine(get_settings().database_url)

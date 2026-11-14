@@ -4,6 +4,7 @@ from io import BytesIO
 import json
 import subprocess
 import sys
+from threading import BoundedSemaphore
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -12,12 +13,12 @@ from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from .auth import CurrentAccount, own_scan, require_owned_scan, same_origin_write
 from .config import ROOT
 from .database import get_db, lock_scan_write
-from .models import Report, ScanAsset, now
+from .models import Account, Report, ScanAsset, now
 from .report_pdf import render_pdf
 from .storage import PrivateStorage, get_storage
 from .unified import summarize_scan, timestamp
@@ -25,6 +26,9 @@ from .unified import summarize_scan, timestamp
 router = APIRouter(prefix="/api")
 DISCLAIMER = "本平台提供基于图像和三维模型的辅助分析参考，不构成临床诊断。实际诊断应由专业口腔医生结合临床检查确定。"
 REVIEW = "请由专业口腔医生结合原始资产与临床检查复核结果。若分析缺失或失败，先检查输入质量和分析状态。"
+# Rendering may decode large images and start mesh workers. Reject excess work
+# instead of filling the web server's thread pool with queued report requests.
+_report_slots = BoundedSemaphore(2)
 
 
 class ReportCreate(BaseModel):
@@ -34,14 +38,25 @@ class ReportCreate(BaseModel):
 def asset_preview(asset: ScanAsset, storage: PrivateStorage) -> dict:
     path = storage.path(asset.storage_key)
     try:
-        data = path.read_bytes()
+        if path.stat().st_size != asset.file_size:
+            return {"status": "unavailable", "reason": "Original asset size does not match"}
+        with path.open("rb") as source:
+            # A damaged/replaced file must not turn a small stored asset into an
+            # unbounded read, even if it grows after the stat above.
+            data = source.read(asset.file_size + 1)
+        if len(data) != asset.file_size:
+            return {"status": "unavailable", "reason": "Original asset size does not match"}
         if sha256(data).hexdigest() != asset.sha256:
             return {"status": "unavailable", "reason": "Original asset hash does not match"}
         if asset.modality == "image_2d":
             buffer = BytesIO()
             with Image.open(BytesIO(data)) as source:
+                if source.width * source.height > 40_000_000:
+                    raise ValueError("Image dimensions exceed the supported limit")
+                # The bounds are square, so shrinking before EXIF orientation
+                # preserves the preview while avoiding full-size RGB copies.
+                source.thumbnail((960, 960), Image.Resampling.LANCZOS)
                 image = ImageOps.exif_transpose(source).convert("RGB")
-                image.thumbnail((960, 960), Image.Resampling.LANCZOS)
                 image.save(buffer, format="JPEG", quality=88)
             payload, media_type = buffer.getvalue(), "image/jpeg"
         else:
@@ -52,16 +67,16 @@ def asset_preview(asset: ScanAsset, storage: PrivateStorage) -> dict:
             payload, media_type = process.stdout, "image/png"
     except subprocess.TimeoutExpired:
         return {"status": "unavailable", "reason": "Mesh preview exceeded the time limit"}
-    except (OSError, ValueError, subprocess.CalledProcessError):
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError, subprocess.CalledProcessError):
         return {"status": "unavailable", "reason": "Original asset could not be rendered"}
     return {"status": "available", "media_type": media_type, "base64": b64encode(payload).decode("ascii")}
 
 
-def report_out(report: Report) -> dict:
+def report_out(report: Report, *, is_demo: bool | None = None) -> dict:
     return {
         "report_id": report.report_id, "scan_id": report.scan_id,
         "format": report.format, "created_at": timestamp(report.created_at),
-        "is_demo": report.analysis_snapshot.get("is_demo", False),
+        "is_demo": report.analysis_snapshot.get("is_demo", False) if is_demo is None else is_demo,
         "download_url": f"/api/scans/{report.scan_id}/reports/{report.report_id}/content",
     }
 
@@ -69,6 +84,18 @@ def report_out(report: Report) -> dict:
 @router.post("/scans/{scan_id}/reports", status_code=201, dependencies=[Depends(same_origin_write)])
 def create_report(scan_id: UUID, request: ReportCreate, account: CurrentAccount, db: Session = Depends(get_db),
                   storage: PrivateStorage = Depends(get_storage)):
+    from .main import error
+    if not _report_slots.acquire(blocking=False):
+        response = error("REPORT_BUSY", "Report generation is busy; try again shortly", 503)
+        response.headers['Retry-After'] = '1'
+        return response
+    try:
+        return _create_report(scan_id, request, account, db, storage)
+    finally:
+        _report_slots.release()
+
+
+def _create_report(scan_id: UUID, request: ReportCreate, account: Account, db: Session, storage: PrivateStorage):
     from .main import error
     if db.get_bind().dialect.name == "sqlite":
         db.connection().exec_driver_sql("BEGIN")
@@ -126,15 +153,21 @@ def create_report(scan_id: UUID, request: ReportCreate, account: CurrentAccount,
 
 @router.get("/scans/{scan_id}/reports", dependencies=[Depends(require_owned_scan)])
 def list_reports(scan_id: UUID, db: Session = Depends(get_db)):
-    reports = db.scalars(select(Report).where(Report.scan_id == str(scan_id)).order_by(Report.created_at.desc()))
-    return {"items": [report_out(report) for report in reports]}
+    # Snapshots contain embedded previews. Keep them out of metadata responses
+    # so listing a long report history does not decode every image into memory.
+    reports = db.execute(
+        select(Report, Report.analysis_snapshot["is_demo"].as_boolean())
+        .options(defer(Report.analysis_snapshot))
+        .where(Report.scan_id == str(scan_id)).order_by(Report.created_at.desc(), Report.report_id)
+    )
+    return {"items": [report_out(report, is_demo=bool(is_demo)) for report, is_demo in reports]}
 
 
 @router.get("/scans/{scan_id}/reports/{report_id}/content", dependencies=[Depends(require_owned_scan)])
 def report_content(scan_id: UUID, report_id: UUID, db: Session = Depends(get_db),
                    storage: PrivateStorage = Depends(get_storage)):
     from .main import error
-    report = db.get(Report, str(report_id))
+    report = db.get(Report, str(report_id), options=[defer(Report.analysis_snapshot)])
     if not report or report.scan_id != str(scan_id):
         return error("REPORT_NOT_FOUND", "Report not found in this scan", 404)
     path = storage.path(report.storage_key)

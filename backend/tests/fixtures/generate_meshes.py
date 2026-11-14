@@ -23,5 +23,5 @@ def generate():
     for name,content in meshes.items(): (ROOT/name).write_bytes(content)
     manifest={name:{'vertex_count':4,'face_count':4,'bounds':[[0,0,0],[1,1,1]],'surface_area':1.5+3**0.5/2,'watertight':True,'volume':1/6} for name in ('tetra_ascii.stl','tetra_binary.stl','tetra.obj','with_material.obj','tetra_ascii.ply','tetra_binary.ply')}
     manifest.update({'open.obj':{'watertight':False,'volume':None},'empty.obj':{'valid':False},'corrupt.stl':{'valid':False},'degenerate.obj':{'face_count':1,'surface_area':0},'disconnected.obj':{'vertex_count':8,'face_count':8,'components':2}})
-    (ROOT/'manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+    (ROOT/'manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n',encoding='utf-8',newline='\n')
 if __name__=='__main__': generate()

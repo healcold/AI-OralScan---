@@ -1,4 +1,6 @@
 import logging
+import sqlite3
+from threading import BoundedSemaphore
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 from .config import get_settings
 from .database import engine, get_db, initialize_schema, lock_scan_write
@@ -31,7 +33,10 @@ async def lifespan(_app):
         if db_path != ':memory:': Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     initialize_schema(engine)
-    yield
+    try:
+        yield
+    finally:
+        engine.dispose()
 
 app = FastAPI(title='AI OralScan API', version='0.2.0', lifespan=lifespan)
 app.include_router(auth_router)
@@ -71,6 +76,14 @@ async def http_error(_request: Request, exc: StarletteHTTPException):
 @app.exception_handler(SQLAlchemyError)
 async def database_error(_request: Request, _exc: SQLAlchemyError):
     log.error('Database operation failed (%s)', type(_exc).__name__)
+    sqlite_code = getattr(getattr(_exc, 'orig', None), 'sqlite_errorcode', None)
+    if isinstance(_exc, PoolTimeoutError) or (
+        isinstance(_exc, OperationalError) and sqlite_code is not None
+        and sqlite_code & 0xff in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    ):
+        response = error('DATABASE_BUSY', 'Database is busy; retry shortly', 503)
+        response.headers['Retry-After'] = '1'
+        return response
     return error('DATABASE_ERROR', 'Database operation failed', 500)
 
 @app.exception_handler(OSError)
@@ -138,11 +151,19 @@ def delete_scan(scan_id: UUID, db: Db, storage: Storage, account: CurrentAccount
     lock_scan_write(db)
     scan = own_scan(db, account, scan_id)
     if not scan: return missing_scan()
-    staged = storage.stage_scan(str(scan_id))
+    staged = None
     try:
-        db.delete(scan); db.commit()
-    except Exception:
-        db.rollback(); storage.restore(staged); raise
+        # Flush database constraints before moving files. On a commit failure,
+        # restore files before releasing the SQLite writer lock.
+        db.delete(scan); db.flush()
+        staged = storage.stage_scan(str(scan_id))
+        db.commit()
+    except BaseException:
+        try:
+            storage.restore(staged)
+        finally:
+            db.rollback()
+        raise
     try:
         storage.purge(staged)
     except OSError as exc:
@@ -156,28 +177,63 @@ def list_assets(scan_id: UUID, db: Db):
     assets = db.scalars(select(ScanAsset).where(ScanAsset.scan_id == str(scan_id)).order_by(ScanAsset.created_at)).all()
     return {'items': [asset_out(asset) for asset in assets]}
 
+upload_slots = BoundedSemaphore(4)
+
+
 @app.post('/api/scans/{scan_id}/assets', status_code=201, dependencies=[Depends(same_origin_write)])
-async def create_asset(scan_id: UUID, db: Db, storage: Storage, account: CurrentAccount, file: Annotated[UploadFile, File()], source_type: Annotated[Literal['upload', 'camera', 'model_import'], Form()] = 'upload', captured_at: Annotated[datetime | None, Form()] = None, unit: Annotated[Literal['unknown','mm','cm','m'], Form()] = 'unknown'):
+def create_asset(scan_id: UUID, db: Db, storage: Storage, account: CurrentAccount, file: Annotated[UploadFile, File()], source_type: Annotated[Literal['upload', 'camera', 'model_import'], Form()] = 'upload', captured_at: Annotated[datetime | None, Form()] = None, unit: Annotated[Literal['unknown','mm','cm','m'], Form()] = 'unknown'):
+    # FastAPI runs sync endpoints in its worker pool: image decoding, disk writes,
+    # SQLite waits and mesh parsing must not block the ASGI event loop.
+    if not upload_slots.acquire(blocking=False):
+        response = error('UPLOAD_BUSY', 'Upload processing is busy; retry shortly', 503)
+        response.headers['Retry-After'] = '1'
+        return response
+    try:
+        return save_asset(scan_id, db, storage, account, file, source_type, captured_at, unit)
+    finally:
+        try:
+            file.file.close()
+        finally:
+            upload_slots.release()
+
+
+def save_asset(scan_id, db, storage, account, file, source_type, captured_at, unit):
+    if captured_at is not None and captured_at.tzinfo is None:
+        return error('VALIDATION_ERROR', 'Capture time must include a timezone', 422)
     scan = own_scan(db, account, scan_id)
     if not scan: return missing_scan()
+    # Return the connection before potentially expensive upload validation.
+    db.rollback()
     try:
-        details = await storage.store_mesh(str(scan_id), file, unit) if source_type=='model_import' else await storage.store_image(str(scan_id), file)
+        prepared = storage.store_mesh(str(scan_id), file, unit) if source_type=='model_import' else storage.store_image(str(scan_id), file)
     except InvalidAsset as exc: return error('INVALID_ASSET', str(exc), 422)
     except AssetTooLarge: return error('FILE_TOO_LARGE', 'File exceeds the upload limit', 413)
     except MeshTimeout: return error('MESH_TIMEOUT', 'Mesh parsing exceeded the time limit', 422)
-    if captured_at is not None:
-        if captured_at.tzinfo is None:
-            storage.path(details['storage_key']).unlink(missing_ok=True)
-            return error('VALIDATION_ERROR', 'Capture time must include a timezone', 422)
-        details['metadata_json']['captured_at'] = captured_at.isoformat()
-    asset = ScanAsset(scan_id=str(scan_id), modality='mesh_3d' if source_type=='model_import' else 'image_2d', source_type=source_type, **details)
+    published = None
     try:
+        details = prepared.details
+        if captured_at is not None:
+            details['metadata_json']['captured_at'] = captured_at.isoformat()
+        asset = ScanAsset(scan_id=str(scan_id), modality='mesh_3d' if source_type=='model_import' else 'image_2d', source_type=source_type, **details)
+        lock_scan_write(db)
+        scan = own_scan(db, account, scan_id)
+        if not scan:
+            db.rollback()
+            return missing_scan()
+        published = storage.publish_upload(prepared)
         db.add(asset)
         scan.source_types = sorted(set(scan.source_types + [source_type]))
         scan.updated_at = now()
         db.commit()
-    except Exception:
-        db.rollback(); storage.path(details['storage_key']).unlink(missing_ok=True); raise
+    except BaseException:
+        try:
+            if published is not None:
+                published.unlink(missing_ok=True)
+        finally:
+            db.rollback()
+        raise
+    finally:
+        prepared.discard()
     return asset_out(asset)
 
 @app.get('/api/scans/{scan_id}/assets/{asset_id}/content', dependencies=[Depends(require_owned_scan)])

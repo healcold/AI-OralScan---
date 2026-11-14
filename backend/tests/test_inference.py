@@ -124,3 +124,109 @@ def test_segmentation_real_output_and_empty_detection(tmp_path):
     assert mask.size==(32,32) and mask.getpixel((16,16))==255 and mask.getpixel((0,0))==0
     rows[0,0,4:6]=0
     assert YOLOSegmentationAdapter(Session(),cfg).infer(path)==[]
+
+
+def test_inference_releases_database_and_exposes_running_job(inference_setup,setup):
+    from sqlalchemy import select
+    from app.models import AnalysisJob, ScanSession
+    client,_,runtime=inference_setup
+    _,_,factory=setup
+    scan=create(client);asset=upload(client,scan).json()
+
+    class ConcurrentWriter:
+        is_demo=False
+        def infer(self,_):
+            assert factory.kw['bind'].pool.checkedout()==0
+            with factory() as other:
+                other.connection().exec_driver_sql('PRAGMA busy_timeout=50')
+                assert other.scalar(select(AnalysisJob.status))=='running'
+                owner_id = other.get(ScanSession, scan).owner_id
+                other.add(ScanSession(owner_id=owner_id,metadata_json={},source_types=[]))
+                other.commit()
+            return []
+
+    runtime.adapter=ConcurrentWriter()
+    response=client.post(f'/api/scans/{scan}/analyze',json={'asset_ids':[asset['asset_id']]})
+    assert response.status_code==201,response.text
+    assert len(client.get('/api/scans').json()['items'])==2
+
+
+def test_scan_deleted_during_inference_returns_not_found(inference_setup,setup):
+    from sqlalchemy import delete
+    from app.models import ScanSession
+    client,_,runtime=inference_setup
+    _,_,factory=setup
+    scan=create(client);asset=upload(client,scan).json()
+
+    class DeletingAdapter:
+        is_demo=False
+        def infer(self,_):
+            with factory() as other:
+                other.connection().exec_driver_sql('PRAGMA busy_timeout=50')
+                other.execute(delete(ScanSession).where(ScanSession.scan_id==scan))
+                other.commit()
+            return []
+
+    runtime.adapter=DeletingAdapter()
+    response=client.post(f'/api/scans/{scan}/analyze',json={'asset_ids':[asset['asset_id']]})
+    assert response.status_code==404,response.text
+    assert response.json()['error']['code']=='SCAN_NOT_FOUND'
+
+
+@pytest.mark.parametrize('result',[None,[{}],[{'category':'test','confidence':float('nan'),'location':{},'evidence':{}}]])
+def test_malformed_adapter_result_records_failure_and_releases_slot(inference_setup,result):
+    client,_,runtime=inference_setup
+    scan=create(client);asset=upload(client,scan).json()
+    class Adapter:
+        is_demo=False
+        def infer(self,_):return result
+    runtime.adapter=Adapter()
+    response=client.post(f'/api/scans/{scan}/analyze',json={'asset_ids':[asset['asset_id']]})
+    assert response.status_code==422,response.text
+    data=client.get(f'/api/scans/{scan}/analysis').json()
+    assert data['jobs'][0]['status']=='failed' and data['findings']==[]
+    assert runtime.inference_slots.acquire(blocking=False)
+    assert runtime.inference_slots.acquire(blocking=False)
+    assert not runtime.inference_slots.acquire(blocking=False)
+    runtime.inference_slots.release();runtime.inference_slots.release()
+
+
+def test_inference_backpressure_does_not_create_jobs(inference_setup):
+    client,_,runtime=inference_setup
+    scan=create(client);asset=upload(client,scan).json()
+    runtime.inference_slots.acquire();runtime.inference_slots.acquire()
+    try:
+        response=client.post(f'/api/scans/{scan}/analyze',json={'asset_ids':[asset['asset_id']]})
+        assert response.status_code==503 and response.headers['retry-after']=='1'
+        assert response.json()['error']['code']=='INFERENCE_BUSY'
+        assert client.get(f'/api/scans/{scan}/analysis').json()['jobs']==[]
+    finally:
+        runtime.inference_slots.release();runtime.inference_slots.release()
+
+
+def test_model_loading_releases_connection_and_serializes_loads(inference_setup,setup,monkeypatch):
+    from app.inference import routes
+    from app.inference.model_loader import ModelLoadError
+    client,_,runtime=inference_setup
+    _,_,factory=setup
+    record=client.post('/api/models',json=spec()).json()
+    url='/api/models/load';payload={'model_id':record['model_id']}
+    runtime.load_lock.acquire()
+    try:
+        busy=client.post(url,json=payload)
+        assert busy.status_code==503 and busy.json()['error']['code']=='MODEL_LOAD_BUSY'
+    finally:runtime.load_lock.release()
+
+    def load(*_):
+        assert factory.kw['bind'].pool.checkedout()==0
+        assert not runtime.load_lock.acquire(blocking=False)
+        return object()
+    monkeypatch.setattr(routes,'load_model',load)
+    assert client.post(url,json=payload).status_code==200
+    active=runtime.snapshot()
+    def fail(*_):raise ModelLoadError('Invalid model')
+    monkeypatch.setattr(routes,'load_model',fail)
+    assert client.post(url,json=payload).status_code==422
+    assert runtime.snapshot()==active
+    assert runtime.load_lock.acquire(blocking=False)
+    runtime.load_lock.release()

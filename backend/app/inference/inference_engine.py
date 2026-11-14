@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from threading import RLock
+from threading import BoundedSemaphore, Lock, RLock
 import numpy as np
 from .image_preprocessing import prepare
 from .output_decoder import decode, OutputMismatch
@@ -45,7 +45,11 @@ class YOLOSegmentationAdapter(YOLODetectionAdapter):
         super().__init__(session,config)
 
 class RuntimeRegistry:
-    def __init__(self): self._lock=RLock();self.model_id=None;self.adapter=None;self.name=None;self.version=None
+    def __init__(self):
+        self._lock=RLock();self.model_id=None;self.adapter=None;self.name=None;self.version=None
+        # Bound allocations from concurrent CPU inference and model replacement.
+        self.inference_slots=BoundedSemaphore(2)
+        self.load_lock=Lock()
     def snapshot(self):
         with self._lock: return self.adapter,self.model_id,self.name,self.version
     def clear(self):
