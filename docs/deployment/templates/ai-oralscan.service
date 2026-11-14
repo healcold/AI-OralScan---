@@ -1,0 +1,18 @@
+[Unit]
+Description=AI OralScan Backend
+After=network.target
+
+[Service]
+User=oralscan
+Group=oralscan
+WorkingDirectory=/opt/ai-oralscan/backend
+StateDirectory=ai-oralscan
+Environment=ORALSCAN_DATABASE_URL=sqlite:////var/lib/ai-oralscan/oralscan.db
+Environment=ORALSCAN_STORAGE_DIR=/var/lib/ai-oralscan/private
+Environment=ORALSCAN_MODELS_DIR=/var/lib/ai-oralscan/models
+ExecStart=/opt/ai-oralscan/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

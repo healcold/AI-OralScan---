@@ -55,6 +55,7 @@ ollama pull qwen3.5:2b-q4_K_M
 
 ## 想了解实现细节？
 
+- [华为云部署工作日志、Linux 与网络服务教程（含脱敏配置和下载包）](docs/deployment/README.md)
 - [系统架构](docs/ARCHITECTURE.md)
 - [模型接入说明](docs/MODEL_INTEGRATION.md)
 - [AI 助理接入说明](docs/AI_ASSISTANT.md)
