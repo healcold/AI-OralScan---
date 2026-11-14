@@ -296,3 +296,125 @@ def test_report_term_question_is_not_mistaken_for_a_workflow_request(assistant, 
     assert response.status_code == 200
     assert response.json()['provider'] == 'DeepSeek'
     assert len(calls) == 1
+
+
+def result_images(factory, status='succeeded', demo=False, empty=False):
+    with factory() as db:
+        scan = ScanSession(source_types=[])
+        other_scan = ScanSession(source_types=[])
+        db.add_all([scan, other_scan]); db.flush()
+        ids = []
+        for index in range(3):
+            asset = ScanAsset(scan_id=scan.scan_id if index < 2 else other_scan.scan_id,
+                              modality='image_2d', source_type='upload', filename='PRIVATE.png',
+                              file_format='png', file_size=1, storage_key=f'PRIVATE-{index}', sha256='a' * 64)
+            db.add(asset); db.flush()
+            job = AnalysisJob(scan_id=asset.scan_id, asset_id=asset.asset_id, pipeline='image_2d',
+                              status=status if index == 0 else 'succeeded', result_summary={'is_demo': demo if index == 0 else False})
+            db.add(job); db.flush()
+            if not empty:
+                db.add(Finding(scan_id=asset.scan_id, asset_id=asset.asset_id, job_id=job.job_id,
+                               modality='image_2d', category='CURRENT IMAGE' if index == 0 else 'UNRELATED IMAGE',
+                               confidence=.7, location={'coordinate_space': 'exif_oriented_image_pixels'}, evidence={'is_demo': demo if index == 0 else False}))
+            ids.append(asset.asset_id)
+        db.commit()
+        return scan.scan_id, ids
+
+
+def test_interpretation_is_scoped_to_one_image_and_has_visit_preparation_policy(assistant):
+    client, _, calls, _, factory = assistant
+    scan_id, assets = result_images(factory)
+    response = send(client, scan_id=scan_id, asset_id=assets[0], intent='explain_result')
+    assert response.status_code == 200
+    outbound = calls[0].content.decode()
+    assert 'CURRENT IMAGE' in outbound
+    assert 'UNRELATED IMAGE' not in outbound
+    assert 'PRIVATE' not in outbound
+    assert '建议如何就医' in outbound
+    assert '不能据此确诊' in outbound
+
+
+@pytest.mark.parametrize(('status', 'demo', 'code'), [
+    ('running', False, 'ASSISTANT_RESULT_NOT_READY'),
+    ('failed', False, 'ASSISTANT_RESULT_NOT_READY'),
+    ('succeeded', True, 'ASSISTANT_DEMO_RESULT'),
+])
+def test_incomplete_or_demo_results_are_not_interpreted(assistant, status, demo, code):
+    client, _, calls, _, factory = assistant
+    scan_id, assets = result_images(factory, status=status, demo=demo)
+    response = send(client, scan_id=scan_id, asset_id=assets[0], intent='explain_result')
+    assert response.status_code == 409
+    assert response.json()['error']['code'] == code
+    assert not calls
+
+
+def test_image_from_another_scan_is_not_shared(assistant):
+    client, _, calls, _, factory = assistant
+    scan_id, assets = result_images(factory)
+    response = send(client, scan_id=scan_id, asset_id=assets[2], intent='explain_result')
+    assert response.status_code == 404
+    assert not calls
+
+
+def test_empty_detection_does_not_mean_healthy(assistant):
+    client, _, calls, _, factory = assistant
+    scan_id, assets = result_images(factory, empty=True)
+    assert send(client, scan_id=scan_id, asset_id=assets[0], intent='explain_result').status_code == 200
+    outbound = calls[0].content.decode()
+    assert '没有标记也不等于健康' in outbound
+    context_message = next(m['content'] for m in json.loads(calls[0].content)['messages'] if m['content'].startswith('以下 JSON'))
+    assert json.loads(context_message.split('\n', 1)[1])['findings'] == []
+
+
+def test_new_failed_job_prevents_interpretation_of_older_success(assistant):
+    client, _, calls, _, factory = assistant
+    scan_id, assets = result_images(factory)
+    with factory() as db:
+        from datetime import datetime, timedelta, timezone
+        db.add(AnalysisJob(scan_id=scan_id, asset_id=assets[0], pipeline='image_2d', status='failed',
+                           created_at=datetime.now(timezone.utc) + timedelta(seconds=1), result_summary={}))
+        db.commit()
+    assert send(client, scan_id=scan_id, asset_id=assets[0], intent='explain_result').status_code == 409
+    assert not calls
+
+
+def test_result_interpretation_requires_an_image_and_consent(assistant):
+    client, _, calls, _, factory = assistant
+    assert send(client, intent='explain_result').status_code == 422
+    scan_id, assets = result_images(factory)
+    assert send(client, scan_id=scan_id, asset_id=assets[0], intent='explain_result', consent=False).status_code == 403
+    assert not calls
+
+
+def test_known_detection_terms_have_grounded_plain_language_hints(assistant):
+    client, _, calls, _, factory = assistant
+    scan_id, assets = result_images(factory)
+    with factory() as db:
+        from sqlalchemy import select
+        finding = db.scalars(select(Finding).where(Finding.asset_id == assets[0])).one()
+        finding.category = 'Crowding'
+        db.commit()
+    assert send(client, scan_id=scan_id, asset_id=assets[0], intent='explain_result').status_code == 200
+    context_message = next(m['content'] for m in json.loads(calls[0].content)['messages'] if m['content'].startswith('以下 JSON'))
+    context = json.loads(context_message.split('\n', 1)[1])
+    assert context['findings'][0]['category'] == 'Crowding'
+    assert '牙列拥挤' in context['findings'][0]['plain_language_hint']
+    assert 'model_score_not_disease_probability' not in context['findings'][0]
+
+
+def test_local_history_trimming_preserves_image_context_and_result_policy(assistant):
+    client, settings, calls, state, factory = assistant
+    settings.assistant_provider = 'ollama'
+    state['body'] = {'message': {'content': '我们一起了解这份文字结果。'}, 'done': True, 'done_reason': 'stop'}
+    scan_id, assets = result_images(factory)
+    response = send(client, provider='ollama', scan_id=scan_id, asset_id=assets[0], intent='explain_result', messages=[
+        {'role': 'user', 'content': '旧问题'}, {'role': 'assistant', 'content': '旧内容' * 2000},
+        {'role': 'user', 'content': '请解释当前图像结果'},
+    ])
+    assert response.status_code == 200
+    messages = json.loads(calls[0].content)['messages']
+    assert len([m for m in messages if m['role'] == 'system']) == 3
+    assert any('CURRENT IMAGE' in m['content'] for m in messages if m['role'] == 'system')
+    assert any('建议如何就医' in m['content'] for m in messages if m['role'] == 'system')
+    assert messages[-1]['content'] == '请解释当前图像结果'
+    assert '旧内容' not in calls[0].content.decode()

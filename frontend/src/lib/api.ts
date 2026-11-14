@@ -37,9 +37,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 export const api = {
   assistantStatus: () => request<AssistantStatus>('/assistant/status'),
-  assistantChat: (messages:AssistantMessage[],scanId:string|undefined,signal:AbortSignal,provider:'ollama'|'deepseek') => request<AssistantReply>('/assistant/chat',{
+  assistantChat: (messages:AssistantMessage[],scanId:string|undefined,signal:AbortSignal,provider:'ollama'|'deepseek', result?:{asset_id:string;intent:'explain_result'}) => request<AssistantReply>('/assistant/chat',{
     method:'POST',headers:{'Content-Type':'application/json'},signal,
-    body:JSON.stringify({messages,scan_id:scanId,consent:true,provider}),
+    body:JSON.stringify({messages,scan_id:scanId,consent:true,provider,...result}),
   }),
   scans: (filters:HistoryFilters={}) => {
     const query=new URLSearchParams()

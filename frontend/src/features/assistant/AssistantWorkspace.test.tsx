@@ -81,6 +81,7 @@ describe('patient assistant',()=>{
     vi.mocked(api.scans).mockResolvedValue({items:[{scan_id:scanId,created_at:'2026-11-14T00:00:00Z',updated_at:'2026-11-14T00:00:00Z',status:'draft',source_types:[],metadata:{}}]})
     const chat = vi.spyOn(api,'assistantChat').mockResolvedValue({reply:'我们一起了解这份检查的文字结果。',provider:'DeepSeek',model:'deepseek-flash',context_included:true})
     show();await screen.findByText('可以聊聊')
+    fireEvent.click(screen.getByText('结合检查解释'))
     await screen.findByRole('option',{name:/00000000/})
     fireEvent.change(screen.getByRole('combobox',{name:'选择检查'}),{target:{value:scanId}})
     fireEvent.click(screen.getByRole('checkbox',{name:'结合这份检查的文字摘要'}))

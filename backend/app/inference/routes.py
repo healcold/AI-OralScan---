@@ -124,6 +124,6 @@ def analyze(scan_id:UUID,payload:AnalyzeRequest,db:Db,runtime:Runtime,storage:Pr
 @router.get('/scans/{scan_id}/analysis')
 def get_analysis(scan_id:UUID,db:Db):
     if not db.get(ScanSession,str(scan_id)):return respond_error('SCAN_NOT_FOUND','Scan not found',404)
-    jobs=db.scalars(select(AnalysisJob).where(AnalysisJob.scan_id==str(scan_id)).order_by(AnalysisJob.created_at.desc())).all()
+    jobs=db.scalars(select(AnalysisJob).where(AnalysisJob.scan_id==str(scan_id)).order_by(AnalysisJob.created_at.desc(), AnalysisJob.job_id.desc())).all()
     findings=db.scalars(select(Finding).where(Finding.scan_id==str(scan_id)).order_by(Finding.created_at.desc())).all()
     return {'jobs':[{'job_id':j.job_id,'asset_id':j.asset_id,'status':j.status,'parameters':j.parameters,'result_summary':j.result_summary,'created_at':j.created_at} for j in jobs], 'findings':[{'finding_id':f.finding_id,'asset_id':f.asset_id,'job_id':f.job_id,'category':f.category,'confidence':f.confidence,'location':f.location,'evidence':f.evidence,'model_version':f.model_version} for f in findings], 'limitations':['Research and assisted screening only; model scores are not disease probabilities.']}
