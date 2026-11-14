@@ -141,11 +141,19 @@ def delete_scan(scan_id: UUID, db: Db, storage: Storage):
     lock_scan_write(db)
     scan = find_scan(db, scan_id)
     if not scan: return missing_scan()
-    staged = storage.stage_scan(str(scan_id))
+    staged = None
     try:
-        db.delete(scan); db.commit()
-    except Exception:
-        db.rollback(); storage.restore(staged); raise
+        # Flush database constraints before moving files. On a commit failure,
+        # restore files before releasing the SQLite writer lock.
+        db.delete(scan); db.flush()
+        staged = storage.stage_scan(str(scan_id))
+        db.commit()
+    except BaseException:
+        try:
+            storage.restore(staged)
+        finally:
+            db.rollback()
+        raise
     try:
         storage.purge(staged)
     except OSError as exc:
@@ -188,26 +196,35 @@ def save_asset(scan_id, db, storage, file, source_type, captured_at, unit):
     # Return the connection before potentially expensive upload validation.
     db.rollback()
     try:
-        details = storage.store_mesh(str(scan_id), file, unit) if source_type=='model_import' else storage.store_image(str(scan_id), file)
+        prepared = storage.store_mesh(str(scan_id), file, unit) if source_type=='model_import' else storage.store_image(str(scan_id), file)
     except InvalidAsset as exc: return error('INVALID_ASSET', str(exc), 422)
     except AssetTooLarge: return error('FILE_TOO_LARGE', 'File exceeds the upload limit', 413)
     except MeshTimeout: return error('MESH_TIMEOUT', 'Mesh parsing exceeded the time limit', 422)
-    if captured_at is not None:
-        details['metadata_json']['captured_at'] = captured_at.isoformat()
-    asset = ScanAsset(scan_id=str(scan_id), modality='mesh_3d' if source_type=='model_import' else 'image_2d', source_type=source_type, **details)
+    published = None
     try:
+        details = prepared.details
+        if captured_at is not None:
+            details['metadata_json']['captured_at'] = captured_at.isoformat()
+        asset = ScanAsset(scan_id=str(scan_id), modality='mesh_3d' if source_type=='model_import' else 'image_2d', source_type=source_type, **details)
         lock_scan_write(db)
         scan = find_scan(db, scan_id)
         if not scan:
             db.rollback()
-            storage.path(details['storage_key']).unlink(missing_ok=True)
             return missing_scan()
+        published = storage.publish_upload(prepared)
         db.add(asset)
         scan.source_types = sorted(set(scan.source_types + [source_type]))
         scan.updated_at = now()
         db.commit()
-    except Exception:
-        db.rollback(); storage.path(details['storage_key']).unlink(missing_ok=True); raise
+    except BaseException:
+        try:
+            if published is not None:
+                published.unlink(missing_ok=True)
+        finally:
+            db.rollback()
+        raise
+    finally:
+        prepared.discard()
     return asset_out(asset)
 
 @app.get('/api/scans/{scan_id}/assets/{asset_id}/content')

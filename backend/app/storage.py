@@ -5,6 +5,7 @@ import shutil
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 from PIL import Image, UnidentifiedImageError
@@ -16,6 +17,15 @@ class StorageError(Exception): pass
 class InvalidAsset(Exception): pass
 class AssetTooLarge(Exception): pass
 class MeshTimeout(Exception): pass
+
+
+@dataclass(frozen=True)
+class PreparedAsset:
+    details: dict
+    path: Path
+
+    def discard(self):
+        self.path.unlink(missing_ok=True)
 
 
 def get_storage():
@@ -52,6 +62,22 @@ class PrivateStorage:
             raise StorageError('Storage aliases are not allowed')
         return path
 
+    def pending_upload_path(self, asset_id: str, ext: str) -> Path:
+        # Validation takes place outside the scan directory so deletion can
+        # stage/restore that directory without racing a still-running upload.
+        path = self.root / 'pending_uploads' / f'{asset_id}.{ext}'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.resolve() != path:
+            raise StorageError('Storage aliases are not allowed')
+        return path
+
+    def publish_upload(self, prepared: PreparedAsset) -> Path:
+        """Caller holds the scan write lock and has rechecked scan existence."""
+        target = self.path(prepared.details['storage_key'])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(prepared.path, target)
+        return target
+
     def store_image(self, scan_id: str, file: UploadFile):
         name = safe_name(file.filename or '')
         ext = Path(name).suffix.lower().lstrip('.')
@@ -59,7 +85,7 @@ class PrivateStorage:
         if ext not in formats: raise InvalidAsset('Only JPEG, PNG and WebP images are supported in this phase')
         asset_id = str(uuid4())
         key = f'scans/{str(UUID(scan_id))}/originals/{asset_id}.{ext}'
-        path = self.path(key)
+        path = self.pending_upload_path(asset_id, ext)
         digest = hashlib.sha256(); size = 0; created = False
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,9 +99,13 @@ class PrivateStorage:
                 with Image.open(path) as image:
                     if image.format != formats[ext]: raise InvalidAsset('File content does not match its extension')
                 metadata = read_metadata(path)
+                # verify() checks structure but does not decode JPEG pixels.
+                # The dimension limit in read_metadata bounds this allocation.
+                with Image.open(path) as image:
+                    image.load()
             except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
                 raise InvalidAsset('Invalid image content') from exc
-            return {'asset_id': asset_id, 'filename': name, 'file_format': ext, 'file_size': size, 'storage_key': key, 'sha256': digest.hexdigest(), 'metadata_json': metadata}
+            return PreparedAsset({'asset_id': asset_id, 'filename': name, 'file_format': ext, 'file_size': size, 'storage_key': key, 'sha256': digest.hexdigest(), 'metadata_json': metadata}, path)
         except BaseException:
             if created: path.unlink(missing_ok=True)
             raise
@@ -86,7 +116,7 @@ class PrivateStorage:
         name=safe_name(file.filename or '')
         ext=Path(name).suffix.lower().lstrip('.')
         if ext not in ('stl','obj','ply'): raise InvalidAsset('Only STL, OBJ and PLY are supported')
-        asset_id=str(uuid4()); key=f'scans/{str(UUID(scan_id))}/originals/{asset_id}.{ext}'; path=self.path(key)
+        asset_id=str(uuid4()); key=f'scans/{str(UUID(scan_id))}/originals/{asset_id}.{ext}'; path=self.pending_upload_path(asset_id, ext)
         digest=hashlib.sha256(); size=0; created=False
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +134,7 @@ class PrivateStorage:
             if not isinstance(parsed, dict): raise InvalidAsset('Mesh parser returned an invalid response')
             if result.returncode or not parsed.get('ok'): raise InvalidAsset(parsed.get('error','Invalid mesh'))
             if not isinstance(parsed.get('metadata'), dict): raise InvalidAsset('Mesh parser returned invalid metadata')
-            return {'asset_id':asset_id,'filename':name,'file_format':ext,'file_size':size,'storage_key':key,'sha256':digest.hexdigest(),'metadata_json':parsed['metadata']}
+            return PreparedAsset({'asset_id':asset_id,'filename':name,'file_format':ext,'file_size':size,'storage_key':key,'sha256':digest.hexdigest(),'metadata_json':parsed['metadata']}, path)
         except BaseException:
             if created: path.unlink(missing_ok=True)
             raise
