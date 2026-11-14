@@ -5,6 +5,7 @@ import { Activity, ArrowRight, Box, Camera, Check, CircleHelp, ClipboardList, Cl
 import { api, type Scan, type Asset } from '../lib/api'
 import { Button } from '../components/ui/button'
 import Acquisition from '../features/acquisition/Acquisition'
+import ScanShowcase from '../features/acquisition/ScanShowcase'
 import MeshImport from '../features/mesh/MeshImport'
 import GeometryWorkspace from '../features/mesh/GeometryWorkspace'
 import AnalysisWorkspace from '../features/analysis/AnalysisWorkspace'
@@ -35,7 +36,7 @@ function Dashboard() { const {scans,assets,state,message,reload}=useScans(); con
 function Workspace() {
  const location=useLocation(); const fromUrl=new URLSearchParams(location.search).get('mode'); const [mode,setMode]=useState<Mode>(modes.some(m=>m.id===fromUrl)?fromUrl as Mode:'image')
  useEffect(()=>{if(modes.some(m=>m.id===fromUrl))setMode(fromUrl as Mode)},[fromUrl]); const selected=modes.find(m=>m.id===mode)!
- return <><PageTitle eyebrow="数据采集" title="扫描工作台" description="选择图片、摄像头或三维模型，开始一次检查。"/><div className="notice"><Sparkles size={18}/><div><strong>选择数据来源</strong><span>确认后保存图像，原始文件将完整保留。</span></div></div><div className="mode-grid" role="tablist" aria-label="扫描来源">{modes.map(m=><button role="tab" aria-selected={mode===m.id} className={`mode-card ${mode===m.id?'selected':''}`} key={m.id} onClick={()=>setMode(m.id)}><div className="mode-card-top"><div className="icon-tile blue"><m.icon size={21}/></div>{mode===m.id&&<span className="selected-check"><Check size={12}/></span>}</div><strong>{m.title}</strong><span>{m.description}</span><small>{m.formats}</small></button>)}</div><Panel className="workspace-panel"><PanelHead title={selected.title} sub={selected.description} />{mode==='3d'?<MeshImport/>:<Acquisition key={mode} source={mode==='image'?'upload':'camera'}/>}</Panel><div className="info-line"><ShieldCheck size={16}/> 本平台用于研究与辅助筛查，分析结果不构成临床诊断。</div></>
+ return <><PageTitle eyebrow="数据采集" title="扫描工作台" description="选择图片、摄像头或三维模型，开始一次检查。"/><ScanShowcase/><div className="notice"><Sparkles size={18}/><div><strong>选择数据来源</strong><span>确认后保存图像，原始文件将完整保留。</span></div></div><div className="mode-grid" role="tablist" aria-label="扫描来源">{modes.map(m=><button role="tab" aria-selected={mode===m.id} className={`mode-card ${mode===m.id?'selected':''}`} key={m.id} onClick={()=>setMode(m.id)}><div className="mode-card-top"><div className="icon-tile blue"><m.icon size={21}/></div>{mode===m.id&&<span className="selected-check"><Check size={12}/></span>}</div><strong>{m.title}</strong><span>{m.description}</span><small>{m.formats}</small></button>)}</div><Panel className="workspace-panel"><PanelHead title={selected.title} sub={selected.description} />{mode==='3d'?<MeshImport/>:<Acquisition key={mode} source={mode==='image'?'upload':'camera'}/>}</Panel><div className="info-line"><ShieldCheck size={16}/> 本平台用于研究与辅助筛查，分析结果不构成临床诊断。</div></>
 }
 function Analysis() {
  const [params,setParams]=useSearchParams()
