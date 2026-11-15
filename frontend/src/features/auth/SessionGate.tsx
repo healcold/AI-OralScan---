@@ -63,11 +63,15 @@ export default function SessionGate({ children }: {
   }
 
   async function signOut() {
-    await api.logout()
-    setError(''); setPassword(''); setUsername(''); setState({ phase: 'signed-out' }); navigate('/login', {replace: true})
+    try {
+      await api.logout()
+      setError(''); setPassword(''); setUsername(''); setState({ phase: 'signed-out' }); navigate('/login', {replace: true})
+    } catch {
+      setError('退出登录未完成，请检查连接后重试。')
+    }
   }
 
-  if (state.phase === 'ready') return children(state.account, signOut)
+  if (state.phase === 'ready') return <>{error && <p role="alert">{error}</p>}{children(state.account, signOut)}</>
   return <main className="auth-screen">
     <section className="auth-card" aria-labelledby="login-title">
       <div className="auth-brand"><ScanLine size={24}/> AI OralScan</div>

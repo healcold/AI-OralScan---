@@ -86,6 +86,15 @@ def test_login_and_mutations_reject_cross_origin(setup):
     assert client.post('/api/scans', json={'metadata': {}}, headers=headers).status_code == 403
 
 
+def test_malformed_origin_is_rejected_without_server_error(setup):
+    client, _, _ = setup
+    for origin in ('http://[broken', 'http://[not-an-ip]', 'null'):
+        headers = {'Origin': origin}
+        assert client.post('/api/auth/login', json={
+            'username': 'unknown', 'password': 'wrong'}, headers=headers).status_code == 403
+        assert client.post('/api/scans', json={'metadata': {}}, headers=headers).status_code == 403
+
+
 def test_registration_creates_only_a_patient_and_requires_separate_login(setup):
     _, _, factory = setup
     with factory() as db:
