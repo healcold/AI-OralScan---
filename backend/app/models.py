@@ -16,6 +16,14 @@ class Account(Base):
     role: Mapped[str] = mapped_column(String(16), default='patient')
 
 
+class AccountRecovery(Base):
+    __tablename__ = 'account_recovery'
+    account_id: Mapped[str] = mapped_column(ForeignKey('accounts.account_id', ondelete='CASCADE'), primary_key=True)
+    question: Mapped[str] = mapped_column(String(71))
+    answer_hash: Mapped[str] = mapped_column(String(128))
+    answer_salt: Mapped[str] = mapped_column(String(48))
+
+
 class LoginSession(Base):
     __tablename__ = 'login_sessions'
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)

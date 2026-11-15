@@ -2,11 +2,16 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { api, ApiError } from '../../lib/api'
+import RecoveryFields from './RecoveryFields'
+import { recoveryError } from './recovery'
 
 export default function RegistrationForm() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [question, setQuestion] = useState('')
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [registered, setRegistered] = useState(false)
@@ -18,13 +23,12 @@ export default function RegistrationForm() {
     event.preventDefault()
     if (busy) return
     const number = phone.trim()
-    if (!/^1[3-9][0-9]{9}$/.test(number)) { setError('请输入有效的中国大陆 11 位手机号。'); return }
-    if (Array.from(password).length < 6 || !password.trim()) { setError('密码至少 6 个字符，且不能全部为空白。'); return }
-    if (password !== confirmation) { setError('两次输入的密码不一致，请重新确认。'); return }
+    const invalid = recoveryError(number, password, confirmation, question, answer.trim(), customPrompt)
+    if (invalid) { setError(invalid); return }
     setBusy(true); setError('')
     try {
-      await api.register(number, password)
-      setPhone(number); setPassword(''); setConfirmation(''); setRegistered(true)
+      await api.register(number, password, question, answer.trim(), question === 'custom' ? customPrompt.trim() : '')
+      setPhone(number); setPassword(''); setConfirmation(''); setAnswer(''); setCustomPrompt(''); setRegistered(true)
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : '暂时无法注册，请检查连接后再试。')
     } finally { setBusy(false) }
@@ -48,6 +52,8 @@ export default function RegistrationForm() {
       <label htmlFor="register-confirm">确认密码</label>
       <input id="register-confirm" type="password" autoComplete="new-password" value={confirmation}
         onChange={event => setConfirmation(event.target.value)} required maxLength={128} disabled={busy}/>
+      <RecoveryFields setup question={question} answer={answer} customPrompt={customPrompt} onQuestion={setQuestion}
+        onAnswer={setAnswer} onCustomPrompt={setCustomPrompt} busy={busy}/>
       {error && <p role="alert">{error}</p>}
       <Button type="submit" disabled={busy}>{busy ? '正在注册…' : '创建账号'}</Button>
     </form>
