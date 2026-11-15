@@ -73,10 +73,14 @@ def require_owned_scan(scan_id: UUID, db: Db, account: CurrentAccount):
 def same_origin_write(request: Request):
     # The frontend and API are served from the same public origin, including behind a proxy.
     origin = request.headers.get('origin')
+    try:
+        parsed_origin = urlsplit(origin) if origin is not None else None
+    except ValueError:
+        raise HTTPException(403, '请从本站页面操作。') from None
     if request.headers.get('sec-fetch-site') in {'cross-site', 'same-site'} or (
         origin is not None and (
-            urlsplit(origin).scheme not in {'http', 'https'}
-            or urlsplit(origin).netloc.lower() != request.headers.get('host', '').lower()
+            parsed_origin.scheme not in {'http', 'https'}
+            or parsed_origin.netloc.lower() != request.headers.get('host', '').lower()
         )
     ):
         raise HTTPException(403, '请从本站页面操作。')
