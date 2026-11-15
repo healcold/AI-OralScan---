@@ -37,15 +37,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
+
+async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    return await request<T>(path, { ...init, signal: controller.signal })
+  } catch (cause) {
+    if (controller.signal.aborted) throw new ApiError('连接超时，请稍后重试。', 0, 'REQUEST_TIMEOUT')
+    throw cause
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 export const api = {
-  account: () => request<Account>('/auth/me'),
-  register: (phone: string, password: string) => request<Account>('/auth/register', {
+  account: () => authRequest<Account>('/auth/me'),
+  register: (phone: string, password: string) => authRequest<Account>('/auth/register', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password}),
   }),
-  login: (username: string, password: string) => request<Account>('/auth/login', {
+  login: (username: string, password: string) => authRequest<Account>('/auth/login', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password}),
   }),
-  logout: () => request<void>('/auth/logout', {method: 'POST'}),
+  logout: () => authRequest<void>('/auth/logout', {method: 'POST'}),
   assistantStatus: () => request<AssistantStatus>('/assistant/status'),
   assistantChat: (messages:AssistantMessage[],scanId:string|undefined,signal:AbortSignal,provider:'ollama'|'deepseek', result?:{asset_id:string;intent:'explain_result'}) => request<AssistantReply>('/assistant/chat',{
     method:'POST',headers:{'Content-Type':'application/json'},signal,

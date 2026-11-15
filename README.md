@@ -21,6 +21,12 @@
 
 ## 在本地体验
 
+Windows 用户可以安装 Python 3.12、Node.js 22+ 和 pnpm 后，直接双击项目根目录的 **`start-local.cmd`**。首次启动会安装依赖，后端就绪后再启动前端；看到 Vite 就绪提示后打开 `http://127.0.0.1:5173`。保持窗口开启，结束时按 Ctrl+C。
+
+启动器将 Python 环境放在 `%LOCALAPPDATA%\OralScan` 的独立短路径中，避免深层项目目录导致 ONNX 安装出现 `WinError 206`。不用复制项目，也不会删除原有环境或数据。如果端口已被占用，先关闭之前启动的本地服务。后端日志路径会在启动失败时显示。
+
+不要双击 `dist/index.html`：构建文件需要通过网页服务访问，注册登录等功能还需要后端。只执行 `pnpm dev` 不能启动后端。以下是手动启动方式（深层 Windows 路径建议使用上面的启动器）：
+
 需要 Python 3.11 或更新版本（推荐 3.12）、Node.js 22 及 pnpm。先在一个 PowerShell 窗口启动后端：
 
 ```powershell
