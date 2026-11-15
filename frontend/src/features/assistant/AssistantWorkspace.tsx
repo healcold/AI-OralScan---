@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Check, HeartHandshake, LoaderCircle, MessageCircle, RefreshCw, Send, ShieldCheck, Sparkles } from 'lucide-react'
 import { api, type AssistantMessage, type AssistantStatus, type Scan } from '../../lib/api'
 import { Button } from '../../components/ui/button'
@@ -12,6 +12,10 @@ const starters = [
   {title:'看牙前有些紧张',text:'我一想到看牙就很紧张，担心会疼，可以陪我一起做些准备吗？',icon:HeartHandshake},
   {title:'不知道怎么开始',text:'我是第一次使用这个工作台，可以一步一步引导我上传图片和查看检查吗？',icon:ArrowRight},
 ]
+
+function hasScrollableMessages(area: HTMLDivElement) {
+  return window.getComputedStyle(area).overflowY === 'auto'
+}
 
 export default function AssistantWorkspace() {
   const [params] = useSearchParams()
@@ -33,7 +37,8 @@ export default function AssistantWorkspace() {
   const [replyProvider,setReplyProvider] = useState('')
   const [replyUrgent,setReplyUrgent] = useState(false)
   const controllerRef = useRef<AbortController|null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const latestReplyRef = useRef<HTMLElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -48,7 +53,25 @@ export default function AssistantWorkspace() {
       .catch(() => {if(live)setScansError('暂时无法读取检查列表，仍可进行普通问答。')})
     return () => {live=false;controllerRef.current?.abort()}
   },[])
-  useEffect(() => {const area=endRef.current?.parentElement;if(area)area.scrollTop=area.scrollHeight},[messages,pending,error])
+  useEffect(() => {
+    const area = messagesRef.current
+    const reply = latestReplyRef.current
+    if (!area || !reply) return
+    if (hasScrollableMessages(area)) {
+      area.scrollTop += reply.getBoundingClientRect().top - area.getBoundingClientRect().top
+      const chat = area.parentElement
+      if (chat && chat.getBoundingClientRect().top < 0) chat.scrollIntoView({ block: 'start' })
+    } else {
+      reply.scrollIntoView?.({ block: 'start' })
+    }
+  }, [messages])
+
+  useEffect(() => {
+    const area = messagesRef.current
+    if (pending && area && hasScrollableMessages(area)) {
+      area.scrollTop = area.scrollHeight
+    }
+  }, [pending])
 
   function resetConversation() {
     setMessages([]);setDraft('');setError('');setUsedContext(false);setReplyModel('');setReplyProvider('');setReplyUrgent(false);setConsent(false)
@@ -94,15 +117,20 @@ export default function AssistantWorkspace() {
 
   return <>
     <div className="page-title assistant-title"><div><div className="eyebrow">陪伴 · 了解 · 下一步</div><h1>AI 助理</h1><p>关于口腔健康的担心，我们可以慢慢聊。</p></div><Button variant="outline" disabled={pending||messages.length===0} onClick={resetConversation} aria-label="开始新对话"><RefreshCw size={15}/><span className="assistant-reset-label">开始新对话</span></Button></div>
+    <div className="assistant-page-actions">
+      <Link className="assistant-records-link" to={scanId ? `/reports?scan=${encodeURIComponent(scanId)}` : '/history'}>
+        {scanId ? '查看这次检查的报告' : '查看我的检查'} <ArrowRight size={16}/>
+      </Link>
+      {messages.length > 0 && <button className="assistant-compose-jump" type="button" onClick={() => inputRef.current?.focus()}>继续提问</button>}
+    </div>
     <div className="assistant-layout">
       <section className="assistant-chat panel" aria-label="口腔健康对话">
         <header className="assistant-chat-header"><XiaoAnAvatar thinking={pending}/><div><strong>小安 · 口腔健康 AI 助理</strong><span>认真听你说，也陪你找到下一步</span></div><span className={`assistant-connection ${status?.configured?'ready':''}`} role="status"><i/>{statusError?'连接待恢复':status===null?'连接中':status.configured?'可以聊聊':'正在准备'}</span></header>
-        <div className="assistant-messages" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions text">
+        <div ref={messagesRef} className="assistant-messages" role="log" aria-label="对话记录" aria-live="polite" aria-relevant="additions text">
           {messages.length===0&&!pending?<div className="assistant-welcome"><div className="assistant-welcome-icon"><Sparkles size={28}/></div><span className="assistant-kicker">你好，我是小安</span><h2>我们从你最在意的事聊起。</h2><p>牙齿不舒服，或是看牙前有些紧张，都可以慢慢说。</p><div className="assistant-starters">{starters.map(({title,text,icon:Icon})=><button key={title} type="button" onClick={()=>chooseStarter(text)}><Icon size={17}/><span>{title}</span><ArrowRight size={14}/></button>)}</div></div>:<>
-            {messages.map((message,index)=><article className={`assistant-message ${message.role}`} key={index}><span className="assistant-message-name">{message.role==='user'?'你':'小安 · AI'}</span><div>{message.role==='assistant'?message.content.replace(/\*\*([^*]+)\*\*/g,'$1'):message.content}</div></article>)}
+            {messages.map((message,index)=><article ref={message.role==='assistant' && index===messages.length-1 ? latestReplyRef : undefined} className={`assistant-message ${message.role}`} key={index}><span className="assistant-message-name">{message.role==='user'?'你':'小安 · AI'}</span><div>{message.role==='assistant'?message.content.replace(/\*\*([^*]+)\*\*/g,'$1'):message.content}</div></article>)}
             {pending&&<><article className="assistant-message user"><span className="assistant-message-name">你</span><div>{draft.trim()}</div></article><div className="assistant-thinking" role="status"><LoaderCircle size={17} className="assistant-spin"/>小安正在认真整理回答…<button type="button" onClick={stopWaiting}>停止等待</button></div></>}
           </>}
-          <div ref={endRef}/>
         </div>
         <div className="assistant-compose">
           {statusError?<div className="assistant-preparing" role="alert">{statusError}<button onClick={()=>{setStatus(null);setStatusError('');setStatusAttempt(n=>n+1)}} type="button">重新连接</button></div>:status&&!status.configured?<div className="assistant-preparing"><span className="assistant-soft-dot"/><span>AI 助理还在准备中，暂时不能回复。你可以先选择话题，或写下想问的问题。</span><button type="button" onClick={()=>{setStatus(null);setStatusAttempt(n=>n+1)}}>检查连接</button></div>:null}

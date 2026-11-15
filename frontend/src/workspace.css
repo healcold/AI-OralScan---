@@ -342,11 +342,22 @@ body { background:#f4f7f8 }
   .content { padding-bottom: 70px; }
 }
 
-.mobile-assistant-link { display: none; }
+.topbar-assistant-link { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; font-size: 13px; color: #17677f; white-space: nowrap; }
+.topbar-assistant-link:hover { text-decoration: underline; }
+.records-workspace .analysis-selector > select { min-width: 0; text-overflow: ellipsis; }
+.records-workspace .record-detail { scroll-margin-top: 16px; }
 @media (max-width: 560px) {
-  .mobile-assistant-link { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; font-size: 13px; color: #17677f; white-space: nowrap; }
-  .top-right:has(.mobile-assistant-link) .top-avatar { display: none; }
-  .app > .assistant-shortcut { display: none; }
+  .top-left { gap: 8px; }
+  .top-left > span { display: none; }
+  .tabs { gap: 12px; flex-wrap: wrap; }
+  .tabs button { min-height: 44px; }
+  .records-workspace { padding: 14px; }
+  .records-workspace form.analysis-selector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .records-workspace .analysis-selector input, .records-workspace .analysis-selector select { width: 100%; min-width: 0; max-width: none; min-height: 44px; font-size: 16px; }
+  .records-workspace form.analysis-selector > .button { grid-column: 1 / -1; min-height: 44px; }
+  .records-workspace .record-detail { margin: 16px 0 0; padding: 12px; }
+  .records-workspace .record-actions .button { min-height: 44px; }
+  .records-workspace .record-actions .text-link, .records-workspace .saved-reports a[download] { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 .check-next-companion { display: flex; gap: 14px; align-items: center; min-width: 0; }

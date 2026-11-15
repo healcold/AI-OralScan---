@@ -1,5 +1,5 @@
 import { zh } from '../../lib/zh'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { api, type HistoryFilters, type Scan, type UnifiedAnalysis } from '../../lib/api'
@@ -28,6 +28,7 @@ export default function RecordsWorkspace({ kind }: { kind: 'history' | 'reports'
   const [actionError, setActionError] = useState('')
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState('')
+  const detailRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     let current = true
@@ -49,6 +50,10 @@ export default function RecordsWorkspace({ kind }: { kind: 'history' | 'reports'
     }
     return () => { current = false }
   }, [kind, selected])
+
+  useEffect(() => {
+    if (details?.scan_id === selected) detailRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [details, selected])
 
   function apply(event: FormEvent) {
     event.preventDefault()
@@ -109,7 +114,7 @@ export default function RecordsWorkspace({ kind }: { kind: 'history' | 'reports'
       : <p role="status">这份检查不在你的记录中，请重新选择。</p>)}
     {detailsError && <p role="alert">{detailsError}</p>}
     {selected && kind === 'history' && !details && !detailsError && <p role="status">正在加载检查详情…</p>}
-    {details?.scan_id === selected && <section className="record-detail">
+    {details?.scan_id === selected && <section ref={detailRef} className="record-detail">
       <h2>检查 {details.scan_id}</h2>
       <div className="record-actions">
         <Link className="text-link" to={`/analysis?tab=unified&scan=${selected}`}>查看已保存分析</Link>

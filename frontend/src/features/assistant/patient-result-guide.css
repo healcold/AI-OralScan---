@@ -34,23 +34,23 @@
 .patient-guide-footer > a { color: #17677f; min-height: 36px; }
 .patient-guide-unavailable { color: #607782; font-size: 14px; line-height: 1.8; }
 .patient-guide-urgent-note { font-size: 12px; line-height: 1.8; color: #786251; margin: 8px 0 0; }
-.analysis-patient-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
-.analysis-patient-layout .analysis-workspace { display: flex; flex-direction: column; }
+.analysis-patient-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 .analysis-patient-layout .analysis-stage { min-height: 260px; }
 .analysis-patient-layout .analysis-findings { background: #fafcfd; }
+.analysis-patient-layout .analysis-workspace { min-width: 0; }
+.analysis-patient-layout .analysis-findings { min-width: 0; overflow-wrap: anywhere; }
 .guide-spinner { animation: guide-spin 1.3s linear infinite; }
 @keyframes guide-spin { to { transform: rotate(360deg); } }
-@media (max-width: 1150px) { .analysis-patient-layout { display: flex; flex-direction: column; } .analysis-patient-layout > * { width: 100%; } .analysis-patient-layout > .patient-guide { order: -1; } }
 @media (max-width: 560px) { .patient-guide { padding: 18px 14px; } .patient-guide-header { gap: 8px; } .patient-guide-header .xiaoan-avatar { width: 54px; height: 54px; } .patient-guide-header h2 { font-size: 18px; } .patient-guide-header > div { min-width: 130px; } .patient-guide-answer { padding: 14px; } .patient-guide-submit .button { width: 100%; white-space: normal; } }
 @media (prefers-reduced-motion: reduce) { .guide-spinner { animation: none; } }
 
-.app:has(.patient-guide) > .assistant-shortcut { display: none; }
 @media (max-width: 560px) {
   .content:has(.analysis-patient-layout) > .page-title .eyebrow { display: none; }
   .content:has(.analysis-patient-layout) > .page-title { padding-bottom: 16px; margin-bottom: 18px; }
   .content:has(.analysis-patient-layout) > .page-title p { margin-top: 6px; }
-  .analysis-content:has(.patient-guide) > .analysis-selector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .analysis-content:has(.patient-guide) > .analysis-selector > label { min-width: 0; }
-  .analysis-content:has(.patient-guide) > .analysis-selector select { width: 100%; max-width: none; min-height: 44px; font-size: 14px; }
-  .analysis-content:has(.patient-guide) > .analysis-selector > .button { width: 100%; min-height: 44px; }
+  .image-analysis { padding: 14px; }
+  .image-analysis > .analysis-selector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .image-analysis > .analysis-selector > label { min-width: 0; }
+  .image-analysis > .analysis-selector select { width: 100%; min-width: 0; max-width: none; min-height: 44px; font-size: 16px; text-overflow: ellipsis; }
+  .image-analysis > .analysis-selector > .button { width: 100%; min-height: 44px; white-space: normal; }
 }
