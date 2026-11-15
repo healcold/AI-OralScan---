@@ -34,6 +34,10 @@ async def lifespan(_app):
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     initialize_schema(engine)
     try:
+        if settings.enable_bundled_model:
+            from .inference.bundled import activate_bundled_model
+            from starlette.concurrency import run_in_threadpool
+            await run_in_threadpool(activate_bundled_model, settings.models_dir)
         yield
     finally:
         engine.dispose()
