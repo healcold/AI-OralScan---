@@ -1,3 +1,5 @@
+访问网站：[https://117.78.10.32](https://117.78.10.32)
+
 <table>
   <tr>
     <td align="center"><h1>AI OralScan · 口腔影像工作台</h1></td>
