@@ -1,6 +1,26 @@
 # Phase 5：口腔研究模型接入
 
-当前没有确认可用的口腔专用模型；系统不附带任何模型或标签。`MODEL_NOT_CONFIGURED` 表示当前服务进程没有加载模型。此平台仅供研究及辅助筛查，模型分数不是患病概率，不构成诊断。
+`MODEL_NOT_CONFIGURED` 表示当前服务进程没有加载模型。仓库中的 `best.onnx` 可用于研究演示；默认不启用。此平台仅供研究及辅助筛查，模型分数不是患病概率，不构成诊断。
+
+## 启用仓库中的模型
+
+先按 [README](../README.md) 启动本机后端。如果还没有工作台管理员，打开终端，在 `backend` 目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.accounts operator --admin
+```
+
+同样在 `backend` 目录运行以下命令，输入管理员账号和密码。macOS/Linux 可把 Python 路径替换为 `./.venv/bin/python`。
+
+```powershell
+.\.venv\Scripts\python.exe -m app.inference.enable_best_model
+```
+
+工具只连接本机后端，核对文件的 SHA-256 后复制到模型目录，再使用现有管理员接口注册并加载。它不会覆盖目录中已有的其他版本，也不会重新创建已有的相同注册记录。显示「模型已就绪」后，刷新分析页，选择清晰的口内近照开始分析。当前加载状态只保存在进程中，重启后端后请重新运行命令，或在「模型管理」中加载已注册的模型。
+
+仓库模型由 Ultralytics 8.3.180 导出，接受单张 `float32[1,3,640,640]` RGB 图像，使用居中补边（值 114）并除以 255。输出布局为 `[1,10,8400]`，无内置 NMS。六类顺序为 `calculus`、`caries`、`gingivitis`、`hypodontia`、`tooth_discolation`（沿用权重原拼写）、`ulcer`。
+
+在 6 张公开来源的口腔局部图和 1 张合成图上，`best.pt` 与 `best.onnx` 使用相同输入时的 14 个检测框全部按类别匹配；项目现有的 Pillow 预处理也全部匹配，最低框重叠度为 99.5%。这只验证该批样本的导出与接入一致性。样本缺少病灶框标注和独立测试集划分，不能据此计算检测准确率。
 
 ## 参考代码复核
 

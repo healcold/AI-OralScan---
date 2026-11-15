@@ -1,0 +1,22 @@
+{
+  "name": "OralScan YOLO11n (research)",
+  "version": "d360a72a4c48",
+  "task": "detection",
+  "device": "CPUExecutionProvider",
+  "purpose": "oral_research",
+  "contract_verified": true,
+  "model_key": "best.onnx",
+  "sha256": "d360a72a4c48542eed5147296e67084122dda514b0a376948ae6e59d7b80315c",
+  "input_size": [640, 640],
+  "labels": ["calculus", "caries", "gingivitis", "hypodontia", "tooth_discolation", "ulcer"],
+  "resize_mode": "letterbox",
+  "color_order": "RGB",
+  "dtype": "float32",
+  "scale": 0.00392156862745098,
+  "pad_value": 114,
+  "output_layout": "BCN",
+  "mask_dim": 0,
+  "confidence_threshold": 0.25,
+  "nms_threshold": 0.45,
+  "max_detections": 50
+}
