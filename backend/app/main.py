@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
@@ -20,6 +21,9 @@ from .models import ScanAsset, ScanSession, now
 from .schemas import ScanCreate, asset_out, scan_out
 from .storage import AssetTooLarge, InvalidAsset, PrivateStorage, StorageError, MeshTimeout, get_storage
 from .auth import CurrentAccount, own_scan, require_owned_scan, same_origin_write, router as auth_router
+from .inference.bundled import activate_bundled_model
+from .inference.inference_engine import get_runtime
+from .inference.model_loader import ModelLoadError
 from .upload_limits import UploadLimits, UploadLimitError
 
 logging.basicConfig(level=logging.INFO)
@@ -33,9 +37,19 @@ async def lifespan(_app):
         if db_path != ':memory:': Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     initialize_schema(engine)
+    enable_bundled_model = settings.enable_bundled_model
     try:
+        if enable_bundled_model:
+            try:
+                record = await run_in_threadpool(activate_bundled_model, settings.models_dir)
+            except ModelLoadError as exc:
+                log.warning('Bundled model was not loaded at startup: %s', exc)
+            else:
+                log.info('Bundled model ready: %s (%s)', record.name, record.version)
         yield
     finally:
+        if enable_bundled_model:
+            get_runtime().clear()
         engine.dispose()
 
 app = FastAPI(title='AI OralScan API', version='0.2.0', lifespan=lifespan)

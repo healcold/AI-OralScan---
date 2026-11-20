@@ -11,8 +11,8 @@ from tempfile import NamedTemporaryFile
 import httpx
 
 from ..config import get_settings
+from .bundled import CONFIG_PATH, find_bundled_registration
 
-CONFIG_PATH = Path(__file__).with_name("best_model.json")
 REPO_ROOT = CONFIG_PATH.resolve().parents[3]
 
 
@@ -61,11 +61,8 @@ def register_and_load(client, username: str, password: str, config: dict, model_
         if account.get("role") != "admin":
             raise RuntimeError("此账号没有模型管理权限，请使用本机工作台管理员账号。")
         place_model(config, model_dir)
-        keys = ("name", "version", "model_key", "sha256")
-        expected = {k: v for k, v in config.items() if k not in keys}
         records = checked_response(client.get("/api/models"))["items"]
-        model = next((row for row in records if row["config"] == expected
-                      and all(row[k] == config[k] for k in keys)), None)
+        model = find_bundled_registration(records, config)
         if model is None:
             model = checked_response(client.post("/api/models", json=config))
         result = checked_response(client.post("/api/models/load", json={"model_id": model["model_id"]}))

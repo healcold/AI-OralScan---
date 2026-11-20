@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     sqlite_busy_timeout_seconds: float = Field(default=10, gt=0, le=60)
     report_font: Path | None = None
     models_dir: Path = ROOT / 'data' / 'models'
+    enable_bundled_model: bool = False
     assistant_provider: Literal['ollama', 'deepseek'] = 'ollama'
     assistant_max_concurrent_requests: int = Field(default=2, gt=0, le=32)
     ollama_model: str = Field(default='qwen3.5:2b-q4_K_M', min_length=1, max_length=100)

@@ -16,7 +16,19 @@
 .\.venv\Scripts\python.exe -m app.inference.enable_best_model
 ```
 
-工具只连接本机后端，核对文件的 SHA-256 后复制到模型目录，再使用现有管理员接口注册并加载。它不会覆盖目录中已有的其他版本，也不会重新创建已有的相同注册记录。显示「模型已就绪」后，刷新分析页，选择清晰的口内近照开始分析。当前加载状态只保存在进程中，重启后端后请重新运行命令，或在「模型管理」中加载已注册的模型。
+工具只连接本机后端，核对文件的 SHA-256 后复制到模型目录，再使用现有管理员接口注册并加载。它不会覆盖目录中已有的其他版本，也不会重新创建已有的相同注册记录。显示「模型已就绪」后，刷新分析页，选择清晰的口内近照开始分析。手动加载只在当前进程生效，每次重启后可从「模型管理」重新加载。
+
+### 在后端启动时自动加载
+
+将仓库根目录的 `best.onnx` 放入 `ORALSCAN_MODELS_DIR`（默认 `backend/data/models`）。然后在 `backend/.env` 或服务器的 systemd 服务环境中设置：
+
+```dotenv
+ORALSCAN_ENABLE_BUNDLED_MODEL=true
+```
+
+重启后端后，服务会使用同一份 `best_model.json` 核对模型的 SHA-256 和 ONNX 输入输出。日志出现 `Bundled model ready` 表示加载成功，也可登录后查看 `GET /api/models/status` 是否返回 `READY`。已有相同的模型登记会被复用，包括旧华为云版本的登记。文件缺失、无法读取或校验失败时，日志会说明原因，登录与历史记录仍可用。检查路径和文件后重新启动即可再试。
+
+该选项默认关闭，适用于部署中已有的单进程后端。华为云更新步骤见[华为云后端更新](HUAWEI_MODEL_UPDATE.md)。
 
 仓库模型由 Ultralytics 8.3.180 导出，接受单张 `float32[1,3,640,640]` RGB 图像，使用居中补边（值 114）并除以 255。输出布局为 `[1,10,8400]`，无内置 NMS。六类顺序为 `calculus`、`caries`、`gingivitis`、`hypodontia`、`tooth_discolation`（沿用权重原拼写）、`ulcer`。
 
@@ -53,6 +65,6 @@ K230 示例使用 `nncase_runtime`、`ulab` 和设备采集显示库，不能用
 }
 ```
 
-所有示例数值均须按具体模型修改；`input_size` 顺序为宽、高。分割需 `task=segmentation` 且 `mask_dim` 与真实模型一致。模型列表通过 `GET /api/models` 查看，`POST /api/models/load` 接收 `{"model_id":"..."}` 并验证、加载。注册信息持久化于 SQLite；加载状态在当前单个服务进程内，重启后需重新加载，不支持多进程间自动同步。
+所有示例数值均须按具体模型修改；`input_size` 顺序为宽、高。分割需 `task=segmentation` 且 `mask_dim` 与真实模型一致。模型列表通过 `GET /api/models` 查看，`POST /api/models/load` 接收 `{"model_id":"..."}` 并验证、加载。注册信息持久化于 SQLite，加载状态保存在单个服务进程中。重启后可以手动加载已注册模型，或按上文启用仓库模型的启动加载。
 
 `POST /api/scans/{scan_id}/analyze` 接受 `{"asset_ids":["..."],"pipeline":"image_2d"}`，本阶段每次处理一个图片资产，响应为已完成任务。未加载模型返回 409 `MODEL_NOT_CONFIGURED`，不会产生任务或结果。推理失败记录失败任务并返回 `INFERENCE_FAILED`。`GET /api/scans/{scan_id}/analysis` 返回任务和 findings；位置使用 EXIF 修正后的图像像素，额外保留原始图像坐标。前端显示最新任务，列表和框均与指定资产关联。测试用 mock adapter 如果启用必须设置 `is_demo=True`；接口强制将它标记为 DEMO。发布的服务不注册任何 mock adapter。
