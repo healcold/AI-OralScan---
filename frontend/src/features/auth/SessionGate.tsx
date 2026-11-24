@@ -74,7 +74,7 @@ export default function SessionGate({ children }: {
   if (state.phase === 'ready') return <>{error && <p role="alert">{error}</p>}{children(state.account, signOut)}</>
   return <main className="auth-screen">
     <section className="auth-card" aria-labelledby="login-title">
-      <div className="auth-brand"><ScanLine size={24}/> AI OralScan</div>
+      <div className="auth-brand"><ScanLine size={24}/><span>口腔医学影像智能分析系统</span></div>
       <h1 id="login-title">{registration ? '注册患者账号' : resetting ? '找回密码' : '登录口腔检查工作台'}</h1>
       <p>{registration ? '请用自己的中国大陆手机号注册，并自行设置密码。' : resetting ? '用手机号和注册时设置的找回答案重设密码。' : '使用手机号或已有账号登录，查看自己的检查、照片和报告。'}</p>
       {state.phase === 'loading' ? <p role="status">正在确认登录状态…</p>

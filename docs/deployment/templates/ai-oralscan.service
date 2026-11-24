@@ -1,5 +1,5 @@
 [Unit]
-Description=AI OralScan Backend
+Description=口腔医学影像智能分析系统 Backend
 After=network.target
 
 [Service]

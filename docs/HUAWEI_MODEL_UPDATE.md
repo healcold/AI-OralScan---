@@ -1,6 +1,6 @@
 # 华为云后端更新 · 模型随服务启动
 
-适用于现有的华为云 AI OralScan 部署。后端服务名是 ai-oralscan，上一版后端目录是 /opt/ai-oralscan-release-cf09d59/backend。这次只需切换后端源码和开启模型启动加载。网页由现有 Nginx 提供，SQLite、私有文件和 DeepSeek 继续使用原有服务配置。
+适用于现有的华为云口腔医学影像智能分析系统部署。后端服务名是 ai-oralscan，上一版后端目录是 /opt/ai-oralscan-release-cf09d59/backend。这次只需切换后端源码和开启模型启动加载。网页由现有 Nginx 提供，SQLite、私有文件和 DeepSeek 继续使用原有服务配置。
 
 在华为云 VNC 的 Linux 终端操作。提示符末尾是 # 时已是 root，否则先运行 sudo -i。各段在同一个终端依次执行。出现错误时，在当前步骤停下。
 

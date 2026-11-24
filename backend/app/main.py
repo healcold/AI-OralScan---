@@ -52,7 +52,7 @@ async def lifespan(_app):
             get_runtime().clear()
         engine.dispose()
 
-app = FastAPI(title='AI OralScan API', version='0.2.0', lifespan=lifespan)
+app = FastAPI(title='口腔医学影像智能分析系统 API', version='0.2.0', lifespan=lifespan)
 app.include_router(auth_router)
 from .assistant import router as assistant_router
 app.include_router(assistant_router)

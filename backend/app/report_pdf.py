@@ -63,10 +63,10 @@ def render_pdf(snapshot: dict) -> bytes:
         canvas.line(45, 53, A4[0] - 45, 53)
         canvas.setFont(font, 8)
         canvas.setFillColor(ink)
-        canvas.drawString(45, 38, "AI OralScan  /  辅助分析参考")
+        canvas.drawString(45, 38, "口腔医学影像智能分析系统  /  辅助分析参考")
         canvas.drawRightString(A4[0] - 45, 38, f"{document.page}")
 
-    line("AI OralScan 检查报告", title)
+    line("口腔医学影像智能分析系统 检查报告", title)
     if snapshot["is_demo"]:
         line("DEMO · 此报告含演示分析，不能作为临床依据", heading)
     for label, value in (
@@ -168,6 +168,6 @@ def render_pdf(snapshot: dict) -> bytes:
                     line(f'位置  {finding["location"]}')
     out = BytesIO()
     document = SimpleDocTemplate(out, pagesize=A4, topMargin=44, bottomMargin=68,
-                                 leftMargin=45, rightMargin=45, title="AI OralScan Report")
+                                 leftMargin=45, rightMargin=45, title="口腔医学影像智能分析系统检查报告")
     document.build(story, onFirstPage=page_frame, onLaterPages=page_frame)
     return out.getvalue()

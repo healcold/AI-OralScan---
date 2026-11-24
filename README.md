@@ -2,7 +2,7 @@
 
 <table>
   <tr>
-    <td align="center"><h1>AI OralScan · 口腔影像工作台</h1></td>
+    <td align="center"><h1>口腔医学影像智能分析系统</h1></td>
   </tr>
 </table>
 
